@@ -1,10 +1,11 @@
+import copy
+import functools
+import multiprocessing
+import os
+
 import numpy as np
 import tensorflow as tf  # pylint: ignore-module
-import copy
-import os
-import functools
-import collections
-import multiprocessing
+
 
 def switch(condition, then_expression, else_expression):
     """Switches between two operations depending on a scalar value (int or bool).
@@ -436,3 +437,12 @@ def launch_tensorboard_in_background(log_dir):
     '''
     import subprocess
     subprocess.Popen(['tensorboard', '--logdir', log_dir])
+
+
+def save_graph(path, sess=None, graph=None):
+    if graph is None:
+        if sess is None:
+            sess = tf.get_default_session()
+        graph = sess.graph
+    writer = tf.summary.FileWriter(path, graph)
+    writer.flush()
