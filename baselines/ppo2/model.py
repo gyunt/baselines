@@ -46,12 +46,14 @@ class Model(object):
                 else:
                     train_model = policy(microbatch_size, nsteps, sess)
 
+        with tf.variable_scope('losses'):
             # CREATE THE PLACEHOLDERS
             self.A = A = train_model.pdtype.sample_placeholder([None], name='action')
             self.ADV = ADV = tf.placeholder(tf.float32, [None], name='advantage')
-            self.REWARDS = REWARDS = tf.placeholder(tf.float32, [None], name='reward')
+            self.RETURNS = RETURNS = tf.placeholder(tf.float32, [None], name='reward')
             self.VALUE_PREV = VALUE_PREV = tf.placeholder(tf.float32, [None], name='value_prev')
-            self.OLDNEGLOGPAC = OLDNEGLOGPAC = tf.placeholder(tf.float32, [None], name='negative_log_p_action_old')
+            self.OLDNEGLOGPAC = OLDNEGLOGPAC = tf.placeholder(tf.float32, [None],
+                                                              name='negative_log_p_action_old')
             self.LR = LR = tf.placeholder(tf.float32, [], name='learning_rate')
             self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [], name='clip_range')
 
@@ -68,8 +70,8 @@ class Model(object):
                 # CALCULATE THE LOSS
                 value = train_model.value
                 value_clipped = VALUE_PREV + tf.clip_by_value(value - VALUE_PREV, -CLIPRANGE, CLIPRANGE)
-                vf_losses1 = tf.square(value - REWARDS)
-                vf_losses2 = tf.square(value_clipped - REWARDS)
+                vf_losses1 = tf.squared_difference(value, RETURNS)
+                vf_losses2 = tf.squared_difference(value_clipped, RETURNS)
                 vf_loss = 0.5 * vf_coef * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
 
             with tf.name_scope("policy_loss"):
@@ -80,7 +82,7 @@ class Model(object):
                 pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
 
             with tf.name_scope("approxkl"):
-                approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
+                approxkl = .5 * tf.reduce_mean(tf.squared_difference(neglogpac, OLDNEGLOGPAC))
 
             with tf.name_scope("clip_fraction"):
                 clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
@@ -88,46 +90,43 @@ class Model(object):
             with tf.name_scope("total_loss"):
                 loss = pg_loss + entropy_loss + vf_loss
 
-        # UPDATE THE PARAMETERS USING LOSS
-        # 1. Get the model parameters
-        params = tf.trainable_variables(name)
+        with tf.name_scope('optimizer'):
+            # UPDATE THE PARAMETERS USING LOSS
+            # 1. Get the model parameters
+            params = tf.trainable_variables(name)
 
-        # 2. Build our trainer
-        if MPI is not None:
-            self.trainer = MpiAdamOptimizer(MPI.COMM_WORLD, learning_rate=LR, epsilon=1e-5)
-        else:
-            self.trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-        # 3. Calculate the gradients
-        grads_and_var = self.trainer.compute_gradients(loss, params)
-        grads, var = zip(*grads_and_var)
+            # 2. Build our trainer
+            if MPI is not None:
+                self.trainer = MpiAdamOptimizer(MPI.COMM_WORLD, learning_rate=LR, epsilon=1e-5)
+            else:
+                self.trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            # 3. Calculate the gradients
+            grads_and_var = self.trainer.compute_gradients(loss, params)
+            grads, var = zip(*grads_and_var)
 
-        if max_grad_norm is not None:
-            # Clip the gradients (normalize)
-            grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
-        grads_and_var = list(zip(grads, var))
-        # zip aggregate each gradient with parameters associated
-        # For instance zip(ABCD, xyza) => Ax, By, Cz, Da
+            if max_grad_norm is not None:
+                # Clip the gradients (normalize)
+                grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
+            grads_and_var = list(zip(grads, var))
 
-        self.grads = grads
-        self.var = var
-        self._train_op = self.trainer.apply_gradients(grads_and_var)
+            self.grads = grads
+            self.var = var
+            self._train_op = self.trainer.apply_gradients(grads_and_var)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'entropy_loss', 'approxkl', 'clipfrac', 'total_loss']
-        self.stats_list = [pg_loss, vf_loss, entropy_loss, approxkl, clipfrac, loss]
+            self.loss_names = ['policy_loss', 'value_loss', 'entropy_loss', 'approxkl', 'clipfrac',
+                               'total_loss']
+            self.stats_list = [pg_loss, vf_loss, entropy_loss, approxkl, clipfrac, loss]
 
-        self.train_model = train_model
-        self.act_model = act_model
+            self.train_model = train_model
+            self.act_model = act_model
 
-        self.save = functools.partial(save_variables, sess=sess)
-        self.load = functools.partial(load_variables, sess=sess)
+            self.save = functools.partial(save_variables, sess=sess)
+            self.load = functools.partial(load_variables, sess=sess)
 
-        initialize()
-        global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
-        if MPI is not None:
-            sync_from_root(sess, global_variables)  # pylint: disable=E1101
-
-    def get_initial_state(self):
-        return self.act_model.get_initial_state()
+            initialize()
+            global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
+            if MPI is not None:
+                sync_from_root(sess, global_variables)  # pylint: disable=E1101
 
     def step(self, *args, **kwargs):
         return self.act_model.step(*args, **kwargs)
@@ -141,17 +140,19 @@ class Model(object):
               actions,
               values,
               neglogpacs,
-              states=None, **_kwargs):
+              **_kwargs):
+        # Normalize the advantages
+        advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+
         td_map = {
             self.train_model.X: obs,
             self.A: actions,
             self.ADV: advs,
-            self.REWARDS: returns,
+            self.RETURNS: returns,
             self.LR: lr,
             self.CLIPRANGE: cliprange,
             self.OLDNEGLOGPAC: neglogpacs,
             self.VALUE_PREV: values,
-            # The standard deviation is the square root of the variance.
         }
 
         td_map.update(self.train_model.feed_dict(**_kwargs))

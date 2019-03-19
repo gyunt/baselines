@@ -21,8 +21,6 @@ class Runner(AbstractEnvRunner):
         self.obs = np.zeros((nenv,) + env.observation_space.shape, dtype=env.observation_space.dtype.name)
         self.obs[:] = env.reset()
         self.nsteps = nsteps
-        self.states = model.get_initial_state()
-        self.states.update({'dones': np.array([0 for _ in range(nenv)], dtype=np.float)})
 
         self.lam = lam  # Lambda used in GAE (General Advantage Estimation)
         self.gamma = gamma  # Discount rate for rewards
@@ -47,8 +45,8 @@ class Runner(AbstractEnvRunner):
             "neglogpacs": np.float32,
         }
 
-        prev_state = self.states
-        dones = self.states['dones']
+        prev_state = {'dones': np.array([0 for _ in range(self.nenv)], dtype=np.float)}
+        dones = prev_state['dones']
         epinfos = []
 
         # For n in range number of steps
@@ -90,12 +88,12 @@ class Runner(AbstractEnvRunner):
 
         # Calculate returns and advantages.
         minibatch['advs'], minibatch['returns'] = \
-            self.temporal_difference(values=minibatch['values'],
-                                     rewards=minibatch['rewards'],
-                                     dones=minibatch['dones'],
-                                     last_values=last_values,
-                                     last_dones=dones,
-                                     gamma=self.gamma)
+            self.advantage_and_returns(values=minibatch['values'],
+                                       rewards=minibatch['rewards'],
+                                       dones=minibatch['dones'],
+                                       last_values=last_values,
+                                       last_dones=dones,
+                                       gamma=self.gamma)
 
         for key in minibatch:
             minibatch[key] = sf01(minibatch[key])
@@ -103,19 +101,13 @@ class Runner(AbstractEnvRunner):
         minibatch['epinfos'] = epinfos
         return minibatch
 
-    def temporal_difference(self, values, rewards, dones, last_values, last_dones, gamma,
-                            use_non_episodic_rewards=False):
+    def advantage_and_returns(self, values, rewards, dones, last_values, last_dones, gamma,
+                              use_non_episodic_rewards=False):
         """
-        from: PPO Paper, https://openai-public.s3-us-west-2.amazonaws.com/blog/2017-07/ppo/ppo-arxiv.pdf
+        calculate Generalized Advantage Estimation (GAE), https://arxiv.org/abs/1506.02438
+        see also Proximal Policy Optimization Algorithms, https://arxiv.org/abs/1707.06347
+        """
 
-        Minibatch style requires an advantage estimator that does not look beyond timestep T. The estimator used by [Mni+16] is
-            A_hat_t = -V(s_t) + r_t + [gamma * r_(t+1)] + ... + [gamma^(T-t+1) * r_(t-1)] + [gamma^(T-t) * V(s_T)]  (10)
-        where t specifies the time index in [0, T], within a given length-T trajectory segment.
-        Generalizing this choice, we can use a truncated version of generalized advantage estimation, which reduces to
-        Equation (10) when lambda = 1:
-            A_hat_t = delta_t + [(gamma * lambda) * delta_(t+1)] + ... + [(gamma * lambda)^(T-t+1) * delta_(T-1)]   (11)
-            where delta_t = r_t + gamma * V(s_(t+1)) - V(s_t)
-        """
         advantages = np.zeros_like(rewards)
         lastgaelam = 0  # Lambda used in General Advantage Estimation
         for t in reversed(range(self.nsteps)):

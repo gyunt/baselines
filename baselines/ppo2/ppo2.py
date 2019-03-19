@@ -5,8 +5,10 @@ from collections import deque
 
 import numpy as np
 import tensorflow as tf
+
 from baselines import logger
-from baselines.common import explained_variance, set_global_seeds
+from baselines.common import explained_variance
+from baselines.common import set_global_seeds
 from baselines.common.tf_util import display_var_info
 from baselines.ppo2.policies import build_ppo_policy
 from baselines.ppo2.runner import Runner
@@ -147,8 +149,15 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         minibatch = runner.run()
 
         if eval_env is not None:
-            # TODO @gyunt
-            eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_states, eval_epinfos = eval_runner.run()  # pylint: disable=E0632
+            eval_minibatch = eval_runner.run()
+            eval_obs = eval_minibatch['obs']
+            eval_returns = eval_minibatch['returns']
+            eval_masks = eval_minibatch['masks']
+            eval_actions = eval_minibatch['actions']
+            eval_values = eval_minibatch['values']
+            eval_neglogpacs = eval_minibatch['neglogpacs']
+            eval_states = eval_minibatch['state']
+            eval_epinfos = eval_minibatch['epinfos']
 
         epinfobuf.extend(minibatch.pop('epinfos'))
         if eval_env is not None:
@@ -187,8 +196,8 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             logger.logkv("explained_variance", float(ev))
             logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
             logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
-            logger.logkv('rewards', safemean(minibatch['rewards']))
-            logger.logkv('advantages', safemean(minibatch['advs']))
+            logger.logkv('rewards_per_step', safemean(minibatch['rewards']))
+            logger.logkv('advantages_per_step', safemean(minibatch['advs']))
 
             if eval_env is not None:
                 logger.logkv('eval_eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]))
