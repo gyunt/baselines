@@ -32,6 +32,7 @@ class Model(object):
                  microbatch_size=None):
         self.sess = sess = get_session()
         self.name = name
+        self.initial_state = None
 
         with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
             with tf.name_scope('act_model'):
@@ -136,7 +137,8 @@ class Model(object):
     def step(self, observations, **kwargs):
         kwargs.update({'observations': observations})
         transition = self.act_model.step(**kwargs)
-        return transition['actions'], transition['values'], transition['states'], transition['neglogpacs']
+        states = transition['states'] if 'states' in transition else None
+        return transition['actions'], transition['values'], states, transition['neglogpacs']
 
     def train(self,
               lr,
