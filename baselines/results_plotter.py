@@ -1,8 +1,10 @@
-import numpy as np
 import matplotlib
-matplotlib.use('TkAgg') # Can change to 'Agg' for non-interactive mode
+import numpy as np
+
+matplotlib.use('TkAgg')  # Can change to 'Agg' for non-interactive mode
 
 import matplotlib.pyplot as plt
+
 plt.rcParams['svg.fonttype'] = 'none'
 
 from baselines.common import plot_util
@@ -14,19 +16,24 @@ Y_REWARD = 'reward'
 Y_TIMESTEPS = 'timesteps'
 POSSIBLE_X_AXES = [X_TIMESTEPS, X_EPISODES, X_WALLTIME]
 EPISODES_WINDOW = 100
-COLORS = ['blue', 'green', 'red', 'cyan', 'magenta', 'yellow', 'black', 'purple', 'pink',
-        'brown', 'orange', 'teal', 'coral', 'lightblue', 'lime', 'lavender', 'turquoise',
-        'darkgreen', 'tan', 'salmon', 'gold', 'darkred', 'darkblue']
+COLORS = ['darkblue', 'green', 'salmon', 'cyan', 'magenta', 'tan', 'lime', 'coral', 'black', 'purple', 'pink',
+          'brown', 'orange', 'teal', 'yellow', 'lightblue', 'lavender', 'red',
+          'darkgreen', 'gold', 'darkred', 'turquoise', 'blue', ]
+
 
 def rolling_window(a, window):
+    a = np.concatenate([np.zeros(window - 1), a])
+
     shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
     strides = a.strides + (a.strides[-1],)
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
 
+
 def window_func(x, y, window, func):
     yw = rolling_window(y, window)
     yw_func = func(yw, axis=-1)
-    return x[window-1:], yw_func
+    return x, yw_func
+
 
 def ts2xy(ts, xaxis, yaxis):
     if xaxis == X_TIMESTEPS:
@@ -45,30 +52,51 @@ def ts2xy(ts, xaxis, yaxis):
         raise NotImplementedError
     return x, y
 
+
 def plot_curves(xy_list, xaxis, yaxis, title):
-    fig = plt.figure(figsize=(8,2))
+    fig = plt.figure(figsize=(8, 6))
     maxx = max(xy[0][-1] for xy in xy_list)
     minx = 0
+    # labels = ['ppo_gru_mlp (PR)', 'mlp (PR)', 'ppo_lstm (PR)', 'ppo_gru (PR)', 'ppo_lstm_mlp (PR)', 'mlp (original ppo2)',
+    #           'lstm (original ppo2, shared)']
+    labels = ['ppo_gru_mlp (PR)', 'mlp (PR)', 'ppo_lstm (PR)', 'ppo_gru (PR)', 'ppo_lstm_mlp (PR)']
+    colors = ['darkblue', 'green', 'salmon', 'cyan', 'magenta']
+
     for (i, (x, y)) in enumerate(xy_list):
-        color = COLORS[i % len(COLORS)]
-        plt.scatter(x, y, s=2)
-        x, y_mean = window_func(x, y, EPISODES_WINDOW, np.mean) #So returns average of last EPISODE_WINDOW episodes
-        plt.plot(x, y_mean, color=color)
+        color = colors[i]
+        # plt.scatter(x, y, s=2, c= color)
+        # x, y_mean = window_func(x, y, EPISODES_WINDOW, np.mean)  # So returns average of last EPISODE_WINDOW episodes
+        plt.plot(x, y, color=color, label=labels[i])
     plt.xlim(minx, maxx)
     plt.title(title)
     plt.xlabel(xaxis)
     plt.ylabel(yaxis)
     plt.tight_layout()
+    plt.legend(loc='upper left')
     fig.canvas.mpl_connect('resize_event', lambda event: plt.tight_layout())
     plt.grid(True)
 
 
 def split_by_task(taskpath):
-    return taskpath['dirname'].split('/')[-1].split('-')[0]
+    return taskpath.dirname.split('/')[-1].split('-')[0]
+
 
 def plot_results(dirs, num_timesteps=10e6, xaxis=X_TIMESTEPS, yaxis=Y_REWARD, title='', split_fn=split_by_task):
+    def a(r):
+        return ts2xy(r.monitor, xaxis, 'avg_rewards')
+
     results = plot_util.load_results(dirs)
-    plot_util.plot_results(results, xy_fn=lambda r: ts2xy(r['monitor'], xaxis, yaxis), split_fn=split_fn, average_group=True, resample=int(1e6))
+    # plot_util.plot_results(results, xy_fn=a, split_fn=split_fn,
+    #                        average_group=True, resample=int(1e6))
+
+    xy_list = []
+
+    for result in results:
+        x = np.cumsum(result.monitor.l.values)
+        y = result.monitor.avg_rewards.values
+        xy_list.append([x, y])
+    plot_curves(xy_list, "time steps", "avg. last 100 episode rewards", "HalfCheetah-v2")
+
 
 # Example usage in jupyter-notebook
 # from baselines.results_plotter import plot_results
@@ -80,15 +108,17 @@ def main():
     import argparse
     import os
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--dirs', help='List of log directories', nargs = '*', default=['./log'])
+    parser.add_argument('--dirs', help='List of log directories', nargs='*', default=['./log'])
     parser.add_argument('--num_timesteps', type=int, default=int(10e6))
-    parser.add_argument('--xaxis', help = 'Varible on X-axis', default = X_TIMESTEPS)
-    parser.add_argument('--yaxis', help = 'Varible on Y-axis', default = Y_REWARD)
-    parser.add_argument('--task_name', help = 'Title of plot', default = 'Breakout')
+    parser.add_argument('--xaxis', help='Varible on X-axis', default=X_TIMESTEPS)
+    parser.add_argument('--yaxis', help='Varible on Y-axis', default=Y_REWARD)
+    parser.add_argument('--task_name', help='Title of plot', default='Breakout')
     args = parser.parse_args()
     args.dirs = [os.path.abspath(dir) for dir in args.dirs]
     plot_results(args.dirs, args.num_timesteps, args.xaxis, args.yaxis, args.task_name)
+    # plot_curves()
     plt.show()
+
 
 if __name__ == '__main__':
     main()
