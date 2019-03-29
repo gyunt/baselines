@@ -42,14 +42,12 @@ class Model(object):
                 with tf.name_scope('act_model'):
                     # CREATE OUR TWO MODELS
                     # act_model that is used for sampling
-                    act_model = policy(nbatch_act, 1, sess)
+                    act_model = policy(nbatch_act, 1, sess, ob_space=ob_space, ac_space=ac_space)
 
                 with tf.name_scope('train_model'):
                     # Train model for training
-                    if microbatch_size is None:
-                        train_model = policy(nbatch_train, nsteps, sess)
-                    else:
-                        train_model = policy(microbatch_size, nsteps, sess)
+                    batch_size = nbatch_train if microbatch_size is None else microbatch_size
+                    train_model = policy(batch_size, nsteps, sess, ob_space=ob_space, ac_space=ac_space)
 
             with tf.variable_scope('losses'):
                 # CREATE THE PLACEHOLDERS

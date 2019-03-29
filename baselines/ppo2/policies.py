@@ -16,7 +16,8 @@ class PolicyWithValue(object):
     Encapsulates fields and methods for RL policy and two value function estimation with shared parameters
     """
 
-    def __init__(self, env, observations, latent, dones, states=None, estimate_q=False, vf_latent=None, sess=None):
+    def __init__(self, observations, action_space, latent, dones, states=None, estimate_q=False, vf_latent=None,
+                 sess=None):
         """
         Parameters:
         ----------
@@ -35,7 +36,7 @@ class PolicyWithValue(object):
         """
         self.X = observations
         self.dones = dones
-        self.pdtype = make_pdtype(env.action_space)
+        self.pdtype = make_pdtype(action_space)
         self.states = states
         self.sess = sess or tf.get_default_session()
 
@@ -57,8 +58,8 @@ class PolicyWithValue(object):
             vf_latent = tf.layers.flatten(vf_latent)
 
             if estimate_q:
-                assert isinstance(env.action_space, gym.spaces.Discrete)
-                self.q = fc(vf_latent, 'q', env.action_space.n)
+                assert isinstance(action_space, gym.spaces.Discrete)
+                self.q = fc(vf_latent, 'q', action_space.n)
                 self.value = self.q
             else:
                 vf_latent = tf.layers.flatten(vf_latent)
@@ -110,14 +111,18 @@ def build_ppo_policy(env, policy_network, value_network=None, estimate_q=False, 
     if value_network is None:
         value_network = 'shared'
 
-    def policy_fn(nbatch=None, nsteps=None, sess=None, observ_placeholder=None):
+    def policy_fn(nbatch=None, nsteps=None, sess=None, observ_placeholder=None, ob_space=None, ac_space=None):
+        if ob_space is None:
+            ob_space = env.observation_space
+        if ac_space is None:
+            ac_space = env.action_space
+
         next_states_list = []
         state_map = {}
         value_state = None
         policy_state = None
         state_placeholder = None
 
-        ob_space = env.observation_space
         X = observ_placeholder if observ_placeholder is not None else observation_placeholder(ob_space,
                                                                                               batch_size=nbatch)
         dones = tf.placeholder_with_default(np.zeros([X.shape[0]]), [X.shape[0]], name='dones')
@@ -189,8 +194,8 @@ def build_ppo_policy(env, policy_network, value_network=None, estimate_q=False, 
 
         with tf.control_dependencies([update_op]):
             policy = PolicyWithValue(
-                env=env,
                 observations=X,
+                action_space=ac_space,
                 dones=dones,
                 latent=policy_latent,
                 vf_latent=value_latent,
