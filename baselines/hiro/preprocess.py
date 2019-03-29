@@ -107,11 +107,11 @@ class StatePreprocess(object):
                         normalized_term = (
                             - distance(sampled_embedded_states[:batch_size], inverse_goal) \
                             - tf.stop_gradient(self.estimated_log_partition)[:, None])
-                        self.loss_repulsive = tf.reduce_mean(tf.exp(normalized_term + 1e-10))
+                        self.loss_repulsive = tf.reduce_mean(tf.exp(normalized_term))
                         self.prior_log_probs = -tf.reduce_mean(
                             self.estimated_log_partition + distance(embed_next_states, inverse_goal))
                         self.representation_loss = -tf.clip_by_value(self.loss_attractive + self.loss_repulsive,
-                                                                     0, 2)
+                                                                     0, 1)
 
             with tf.variable_scope('optimizer'):
                 self.LR = LR = tf.placeholder(tf.float32, [], name='learning_rate')
