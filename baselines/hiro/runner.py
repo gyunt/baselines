@@ -1,6 +1,6 @@
 import numpy as np
-
 from baselines.common.runners import AbstractEnvRunner
+from baselines.common.running_mean_std import RunningMeanStd
 from baselines.common.tf_util import get_session
 
 
@@ -19,10 +19,14 @@ class Runner(AbstractEnvRunner):
         self.env = env
         self.high_model = high_model
         self.low_model = low_model
+        self.running_mean = RunningMeanStd(shape=ob_space.shape)
         self.nenv = nenv = env.num_envs if hasattr(env, 'num_envs') else 1
         self.batch_ob_shape = (nenv * nsteps,) + env.observation_space.shape
         self.observations = np.zeros((nenv,) + env.observation_space.shape, dtype=env.observation_space.dtype.name)
         self.observations = env.reset()
+        self.running_mean.update(self.observations)
+        self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
+
         self.nsteps = nsteps
         self.dones = np.array([False for _ in range(self.nenv)])
         self.lam = lam  # Lambda used in GAE (General Advantage Estimation)
@@ -30,6 +34,14 @@ class Runner(AbstractEnvRunner):
         self.ob_space = ob_space
         self.state_preprocess = state_preprocess
         self.meta_action_every_n = meta_action_every_n
+
+        discount = np.zeros((self.meta_action_every_n, self.nenv))
+        discount[0] = 1
+
+        for i in range(self.meta_action_every_n - 1):
+            discount[i + 1] = discount[i] * self.gamma
+        discount[-1] /= (1 - self.gamma)
+        self.discount = discount
 
         if sess is None:
             sess = get_session()
@@ -63,9 +75,6 @@ class Runner(AbstractEnvRunner):
             "neglogpacs": np.float32,
         }
 
-        high_transitions = {}
-        prev_high_transition = {}
-        # low_transitions = {}
         epinfos = []
 
         # For n in range number of steps
@@ -79,26 +88,29 @@ class Runner(AbstractEnvRunner):
             high_transitions['rewards'] = [0] * self.nenv
             sub_goals = high_transitions['actions']
 
-            for _ in range(self.meta_action_every_n):
+            low_actions = []
+
+            for j in range(self.meta_action_every_n):
                 low_transitions = dict()
+                low_transitions['begin_high_observations'] = high_transitions['observations']
                 low_transitions['observations'] = self.state_preprocess.embedded_state(self.observations)
                 low_transitions['dones'] = self.dones
                 low_transitions['high_observations'] = self.observations.copy()
+                low_transitions['discount'] = self.discount[j]
+                low_transitions['goal_states'] = sub_goals
 
                 # if 'next_states' in prev_low_transition:
                 #     low_transitions['states'] = prev_low_transition['next_states']
                 low_transitions.update(self.low_model.step_as_dict(**low_transitions))
+                low_actions.append(low_transitions['actions'])
 
                 # Take actions in env and look the results
                 # Infos contains a ton of useful informations
                 self.observations, reward, self.dones, infos = self.env.step(low_transitions['actions'])
+                self.running_mean.update(self.observations)
+                self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
+
                 low_transitions['next_high_observations'] = self.observations.copy()
-                low_transitions['rewards'] = self.state_preprocess.low_rewards(
-                    states=low_transitions['high_observations'],
-                    next_states=low_transitions[
-                        'next_high_observations'],
-                    low_actions=low_transitions['actions'],
-                    goal_states=sub_goals)
                 high_transitions['rewards'] += reward
 
                 self.dones = np.array(self.dones, dtype=np.float)
@@ -113,6 +125,29 @@ class Runner(AbstractEnvRunner):
                         low_minibatch[key] = []
                     low_minibatch[key].append(low_transitions[key])
                 prev_low_transition = low_transitions
+
+            if 'low_actions' not in low_minibatch:
+                low_minibatch['low_actions'] = []
+            if 'rewards' not in low_minibatch:
+                low_minibatch['rewards'] = []
+            if 'sampled_estimated_log_partition' not in low_minibatch:
+                low_minibatch['sampled_estimated_log_partition'] = []
+
+            low_actions = np.array(low_actions).swapaxes(0, 1)
+
+            for j in range(self.meta_action_every_n):
+                low_minibatch['low_actions'].append(low_actions)
+
+            for j in reversed(range(self.meta_action_every_n)):
+                rewards, sampled_estimated_log_partition = self.state_preprocess.low_rewards(
+                    begin_high_observations=low_minibatch['begin_high_observations'][-j],
+                    high_observations=low_minibatch['high_observations'][-j],
+                    next_high_observations=low_minibatch[
+                        'next_high_observations'][-j],
+                    low_actions=low_minibatch['low_actions'][-j],
+                    goal_states=sub_goals, )
+                low_minibatch['rewards'].append(rewards)
+                low_minibatch['sampled_estimated_log_partition'].append(sampled_estimated_log_partition)
 
             for key in high_transitions:
                 if key not in high_minibatch:

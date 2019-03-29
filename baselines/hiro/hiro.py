@@ -27,8 +27,8 @@ def constfn(val):
 
 
 def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, lr=3e-4,
-          vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, sub_goal_dim=4,
-          log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2, meta_action_every_n=1,
+          vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, sub_goal_dim=8,
+          log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2, meta_action_every_n=4,
           save_interval=10, load_path=None, model_fn=None, **network_kwargs):
     """
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -112,7 +112,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         from baselines.ppo2.model import Model
         model_fn = Model
 
-    subgoal_space = gym.spaces.Box(low=-10, high=10, shape=(sub_goal_dim,), dtype=np.float32)
+    subgoal_space = gym.spaces.Box(low=-.1, high=.1, shape=(sub_goal_dim,), dtype=np.float32)
 
     with tf.Session() as sess:
         high_model = model_fn(name='high_model', policy=policy, ob_space=ob_space, ac_space=subgoal_space,
@@ -130,6 +130,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             ob_space=ob_space,
             subgoal_space=subgoal_space,
             act_space=ac_space,
+            meta_action_every_n=meta_action_every_n,
             state_preprocess_net=state_preprocess_net,
             action_embed_net=action_embed_net,
             max_grad_norm=max_grad_norm)
@@ -187,6 +188,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             # Here what we're going to do is for each minibatch calculate the loss and append it.
             high_loss_vals = []
             low_loss_vals = []
+            repr_loss_vals = []
 
             # Index of each element of batch_size
             # Create the indices array
@@ -195,7 +197,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                 # Randomize the indexes
                 np.random.shuffle(inds)
                 # 0 to batch_size with batch_train_size step
-                for start in range(0, nbatch // meta_action_every_n, nbatch_train // meta_action_every_n):
+                for start in range(0, nbatch // meta_action_every_n, nbatch_train):
                     end = start + nbatch_train // meta_action_every_n
                     mbinds = inds[start:end]
                     slices = {key: high_minibatch[key][mbinds] for key in high_minibatch}
@@ -211,11 +213,13 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                     mbinds = inds[start:end]
                     slices = {key: low_minibatch[key][mbinds] for key in low_minibatch}
                     low_loss_vals.append(low_model.train(lrnow, cliprangenow, **slices))
-                    state_preprocess.train(lrnow, **slices)
+                    repr_loss_vals.append(state_preprocess.train(lrnow, **slices))
 
             # Feedforward --> get losses --> update
             high_loss_vals = np.mean(high_loss_vals, axis=0)
             low_loss_vals = np.mean(low_loss_vals, axis=0)
+            repr_loss_vals = np.mean(repr_loss_vals, axis=0)
+
             # End timer
             tnow = time.time()
             # Calculate the fps (frame per second)
@@ -231,14 +235,18 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                 logger.logkv("explained_variance", float(ev))
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
-                logger.logkv('rewards_per_step (high)', safemean(high_minibatch['rewards']))
-                logger.logkv('rewards_per_step (low)', safemean(low_minibatch['rewards']))
+                logger.logkv('high_rewards_per_step ', safemean(high_minibatch['rewards']))
+                logger.logkv('lowrewards_per_step', safemean(low_minibatch['rewards']))
                 logger.logkv('advantages_per_step', safemean(high_minibatch['advs']))
+                logger.logkv('sampled_estimated_log_partition',
+                             safemean(low_minibatch['sampled_estimated_log_partition']))
                 logger.logkv('time_elapsed', tnow - tfirststart)
                 for (lossval, lossname) in zip(high_loss_vals, high_model.loss_names):
-                    logger.logkv(lossname, lossval)
-                for (lossval, lossname) in zip(high_loss_vals, high_model.loss_names):
+                    logger.logkv('high_' + lossname, lossval)
+                for (lossval, lossname) in zip(low_loss_vals, low_model.loss_names):
                     logger.logkv('low_' + lossname, lossval)
+                for (lossval, lossname) in zip(repr_loss_vals, state_preprocess.stats_names):
+                    logger.logkv('repr_' + lossname, lossval)
                 if MPI is None or MPI.COMM_WORLD.Get_rank() == 0:
                     logger.dumpkvs()
 
