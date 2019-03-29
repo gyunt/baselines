@@ -76,19 +76,21 @@ class Runner(AbstractEnvRunner):
         }
 
         epinfos = []
+        prev_high_transition = dict()
 
         # For n in range number of steps
         for i in range(self.nsteps // self.meta_action_every_n):
             high_transitions = dict()
             high_transitions['observations'] = self.observations.copy()
             high_transitions['dones'] = self.dones
-            # if 'next_states' in prev_high_transition:
-            #     high_transitions['states'] = prev_high_transition['next_states']
+            if 'next_states' in prev_high_transition:
+                high_transitions['states'] = prev_high_transition['next_states']
             high_transitions.update(self.high_model.step_as_dict(**high_transitions))
             high_transitions['rewards'] = [0] * self.nenv
             sub_goals = high_transitions['actions']
 
             low_actions = []
+            prev_low_transition = dict()
 
             for j in range(self.meta_action_every_n):
                 low_transitions = dict()
@@ -99,8 +101,8 @@ class Runner(AbstractEnvRunner):
                 low_transitions['discount'] = self.discount[j]
                 low_transitions['goal_states'] = sub_goals
 
-                # if 'next_states' in prev_low_transition:
-                #     low_transitions['states'] = prev_low_transition['next_states']
+                if 'next_states' in prev_low_transition:
+                    low_transitions['states'] = prev_low_transition['next_states']
                 low_transitions.update(self.low_model.step_as_dict(**low_transitions))
                 low_actions.append(low_transitions['actions'])
 
