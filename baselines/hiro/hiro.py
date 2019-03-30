@@ -238,8 +238,6 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                 logger.logkv('high_rewards_per_step ', safemean(high_minibatch['rewards']))
                 logger.logkv('low_rewards_per_step', safemean(low_minibatch['rewards']))
                 logger.logkv('advantages_per_step', safemean(high_minibatch['advs']))
-                logger.logkv('sampled_estimated_log_partition',
-                             safemean(low_minibatch['sampled_estimated_log_partition']))
                 logger.logkv('time_elapsed', tnow - tfirststart)
                 for (lossval, lossname) in zip(high_loss_vals, high_model.loss_names):
                     logger.logkv('high_' + lossname, lossval)

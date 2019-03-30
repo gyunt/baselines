@@ -157,7 +157,7 @@ class StatePreprocess(object):
 
     def low_rewards(self, begin_high_observations, high_observations, next_high_observations, low_actions, goal_states,
                     discounts):
-        return self.sess.run([self._low_rewards, self.estimated_log_partition], {
+        return self.sess.run(self._low_rewards, {
             self.begin_high_observations: begin_high_observations,
             self.high_observations: high_observations,
             self.next_high_observations: next_high_observations,
