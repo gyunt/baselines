@@ -81,7 +81,7 @@ class Runner(AbstractEnvRunner):
         # For n in range number of steps
         for i in range(self.nsteps // self.meta_action_every_n):
             high_transitions = dict()
-            high_transitions['observations'] = self.observations.copy()
+            high_transitions['observations'] = self.observations
             high_transitions['dones'] = self.dones
             if 'next_states' in prev_high_transition:
                 high_transitions['states'] = prev_high_transition['next_states']
@@ -97,7 +97,7 @@ class Runner(AbstractEnvRunner):
                 low_transitions['begin_high_observations'] = high_transitions['observations']
                 low_transitions['observations'] = self.state_preprocess.embedded_state(self.observations)
                 low_transitions['dones'] = self.dones
-                low_transitions['high_observations'] = self.observations.copy()
+                low_transitions['high_observations'] = self.observations
                 low_transitions['discounts'] = self.discount[j]
                 low_transitions['goal_states'] = sub_goals
 
@@ -108,11 +108,12 @@ class Runner(AbstractEnvRunner):
 
                 # Take actions in env and look the results
                 # Infos contains a ton of useful informations
-                self.running_mean.update(self.observations)
-                self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
                 self.observations, high_rewards, self.dones, infos = self.env.step(low_transitions['actions'])
+                self.observations = self.observations.copy()
+                # self.running_mean.update(self.observations)
+                # self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
 
-                low_transitions['next_high_observations'] = self.observations.copy()
+                low_transitions['next_high_observations'] = self.observations
                 high_transitions['rewards'] += high_rewards
 
                 self.dones = np.array(self.dones, dtype=np.float)
@@ -152,7 +153,7 @@ class Runner(AbstractEnvRunner):
                 high_minibatch[key].append(high_transitions[key])
             prev_high_transition = high_transitions
 
-        high_transitions['observations'] = self.observations.copy()
+        high_transitions['observations'] = self.observations
         high_transitions['dones'] = self.dones
         if 'states' in high_transitions:
             high_transitions['states'] = high_transitions.pop('next_states')
