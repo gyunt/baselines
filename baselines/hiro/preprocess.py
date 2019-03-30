@@ -50,10 +50,8 @@ class StatePreprocess(object):
                 self.begin_high_observations = observation_placeholder(ob_space)
                 self.high_observations = observation_placeholder(ob_space)
                 self.next_high_observations = observation_placeholder(ob_space)
-                self.end_high_observations = observation_placeholder(ob_space)
                 self.goal_states = observation_placeholder(subgoal_space)
                 self.low_actions = tf.placeholder(tf.float32, [None, meta_action_every_n] + list(act_space.shape))
-                self.sampled_estimated_log_partition = tf.placeholder(tf.float32, shape=(None,))
                 self.discounts = tf.placeholder(tf.float32, shape=(None,))
 
                 with tf.variable_scope('embed_state'):
@@ -173,7 +171,6 @@ class StatePreprocess(object):
               high_observations,
               next_high_observations,
               low_actions,
-              sampled_estimated_log_partition,
               discounts,
               goal_states,
               **_kwargs):
@@ -183,7 +180,6 @@ class StatePreprocess(object):
             self.high_observations: high_observations,
             self.next_high_observations: next_high_observations,
             self.low_actions: low_actions,
-            self.sampled_estimated_log_partition: sampled_estimated_log_partition,
             self.discounts: discounts,
             self.goal_states: goal_states,
         }

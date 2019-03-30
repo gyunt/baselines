@@ -132,9 +132,6 @@ class Runner(AbstractEnvRunner):
                 low_minibatch['low_actions'] = []
             if 'rewards' not in low_minibatch:
                 low_minibatch['rewards'] = []
-            if 'sampled_estimated_log_partition' not in low_minibatch:
-                low_minibatch['sampled_estimated_log_partition'] = []
-
             low_actions = np.array(low_actions).swapaxes(0, 1)
 
             for j in range(self.meta_action_every_n):
@@ -149,7 +146,6 @@ class Runner(AbstractEnvRunner):
                     goal_states=low_minibatch['goal_states'][-j],
                     discounts=low_minibatch['discounts'][-j])
                 low_minibatch['rewards'].append(rewards)
-                low_minibatch['sampled_estimated_log_partition'].append(sampled_estimated_log_partition)
 
             for key in high_transitions:
                 if key not in high_minibatch:
