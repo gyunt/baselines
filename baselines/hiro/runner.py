@@ -108,12 +108,12 @@ class Runner(AbstractEnvRunner):
 
                 # Take actions in env and look the results
                 # Infos contains a ton of useful informations
-                self.observations, reward, self.dones, infos = self.env.step(low_transitions['actions'])
                 self.running_mean.update(self.observations)
                 self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
+                self.observations, high_rewards, self.dones, infos = self.env.step(low_transitions['actions'])
 
                 low_transitions['next_high_observations'] = self.observations.copy()
-                high_transitions['rewards'] += reward
+                high_transitions['rewards'] += high_rewards
 
                 self.dones = np.array(self.dones, dtype=np.float)
 
@@ -133,19 +133,18 @@ class Runner(AbstractEnvRunner):
             if 'rewards' not in low_minibatch:
                 low_minibatch['rewards'] = []
             low_actions = np.array(low_actions).swapaxes(0, 1)
-
             for j in range(self.meta_action_every_n):
                 low_minibatch['low_actions'].append(low_actions)
 
-            for j in reversed(range(self.meta_action_every_n)):
-                rewards, sampled_estimated_log_partition = self.state_preprocess.low_rewards(
+            for j in range(self.meta_action_every_n):
+                low_rewards = self.state_preprocess.low_rewards(
                     begin_high_observations=low_minibatch['begin_high_observations'][-j],
                     high_observations=low_minibatch['high_observations'][-j],
                     next_high_observations=low_minibatch['next_high_observations'][-j],
                     low_actions=low_minibatch['low_actions'][-j],
                     goal_states=low_minibatch['goal_states'][-j],
                     discounts=low_minibatch['discounts'][-j])
-                low_minibatch['rewards'].append(rewards)
+                low_minibatch['rewards'].append(low_rewards)
 
             for key in high_transitions:
                 if key not in high_minibatch:
