@@ -8,7 +8,7 @@ import tensorflow as tf
 from baselines import logger
 from baselines.common import explained_variance
 from baselines.common import set_global_seeds
-from baselines.common.tf_util import display_var_info
+from baselines.common.tf_util import display_var_info, save_variables, load_variables
 from baselines.hiro.preprocess import StatePreprocess, state_preprocess_net, action_embed_net
 from baselines.hiro.runner import Runner
 from baselines.ppo2.policies import build_ppo_policy
@@ -146,8 +146,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         save_graph("i:/tmp/")
 
         if load_path is not None:
-            high_model.load(os.path.join(load_path, 'high_model'))
-            low_model.load(os.path.join(load_path, 'low_model'))
+            load_variables(load_path, sess=sess )
 
         high_allvars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, high_model.scope.name)
         display_var_info(high_allvars)
@@ -250,14 +249,13 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                 if MPI is None or MPI.COMM_WORLD.Get_rank() == 0:
                     logger.dumpkvs()
 
-            # if save_interval and (update % save_interval == 0 or update == 1) and logger.get_dir() and (
-            #     MPI is None or MPI.COMM_WORLD.Get_rank() == 0):
-            #     checkdir = osp.join(logger.get_dir(), 'checkpoints')
-            #     os.makedirs(checkdir, exist_ok=True)
-            #     savepath = osp.join(checkdir, '%.5i' % update)
-            #     print('Saving to', savepath)
-            #     high_model.save(os.path.join(savepath, 'high_model'))
-            #     low_model.save(os.path.join(savepath, 'low_model'))
+            if save_interval and (update % save_interval == 0 or update == 1) and logger.get_dir() and (
+                MPI is None or MPI.COMM_WORLD.Get_rank() == 0):
+                checkdir = os.path.join(logger.get_dir(), 'checkpoints')
+                os.makedirs(checkdir, exist_ok=True)
+                savepath = os.path.join(checkdir, '%.5i' % update)
+                print('Saving to', savepath)
+                save_variables(savepath, sess=sess)
             del high_minibatch
             del low_minibatch
     return tuple([high_model, low_model])
