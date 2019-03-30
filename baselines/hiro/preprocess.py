@@ -97,6 +97,9 @@ class StatePreprocess(object):
                             + distance(embed_next_states, inverse_goal) + estimated_log_partition
 
                 with tf.variable_scope('loss'):
+                    self.prior_log_probs = -tf.reduce_mean(
+                        self.estimated_log_partition + distance(embed_next_states, inverse_goal))
+
                     with tf.variable_scope('representation_loss'):
                         # original implementation
                         self.loss_attractive = distance(inverse_goal, embed_next_states)
@@ -107,8 +110,6 @@ class StatePreprocess(object):
                             - tf.stop_gradient(self.estimated_log_partition)[:, None])
                         self.loss_repulsive = tf.reduce_mean(tf.exp(normalized_term), axis=1)
                         loss = tf.reduce_mean(self.discounts * (self.loss_attractive + self.loss_repulsive))
-                        self.prior_log_probs = -tf.reduce_mean(
-                            self.estimated_log_partition + distance(embed_next_states, inverse_goal))
                         self.representation_loss = -tf.clip_by_value(loss, 0, 1)
 
             with tf.variable_scope('optimizer'):
