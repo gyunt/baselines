@@ -28,7 +28,7 @@ def constfn(val):
 
 def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, lr=3e-4,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, sub_goal_dim=8,
-          log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2, meta_action_every_n=4,
+          log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2, meta_action_every_n=4, sampling_size=1024,
           save_interval=10, load_path=None, model_fn=None, **network_kwargs):
     """
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -130,6 +130,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             ob_space=ob_space,
             subgoal_space=subgoal_space,
             act_space=ac_space,
+            sampling_size=sampling_size,
             meta_action_every_n=meta_action_every_n,
             state_preprocess_net=state_preprocess_net,
             action_embed_net=action_embed_net,
