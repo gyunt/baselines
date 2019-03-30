@@ -78,6 +78,12 @@ class Runner(AbstractEnvRunner):
         epinfos = []
         prev_high_transition = dict()
 
+        observation_shape = self.observations.shape
+        multi = 1
+        for i in range(1, len(observation_shape)):
+            multi *= observation_shape[i]
+        low_observation_space = [observation_shape[0], multi]
+
         # For n in range number of steps
         for i in range(self.nsteps // self.meta_action_every_n):
             high_transitions = dict()
@@ -91,15 +97,20 @@ class Runner(AbstractEnvRunner):
 
             low_actions = []
             prev_low_transition = dict()
+            context = sub_goals
 
             for j in range(self.meta_action_every_n):
                 low_transitions = dict()
                 low_transitions['begin_high_observations'] = high_transitions['observations']
-                low_transitions['observations'] = self.state_preprocess.embedded_state(self.observations)
                 low_transitions['dones'] = self.dones
                 low_transitions['high_observations'] = self.observations
                 low_transitions['discounts'] = self.discount[j]
                 low_transitions['goal_states'] = sub_goals
+                low_transitions['observations'] = np.concatenate(
+                    [
+                        self.state_preprocess.embedded_state(low_transitions['high_observations']),
+                        context,
+                    ], axis=1)
 
                 if 'next_states' in prev_low_transition:
                     low_transitions['states'] = prev_low_transition['next_states']
@@ -110,11 +121,13 @@ class Runner(AbstractEnvRunner):
                 # Infos contains a ton of useful informations
                 self.observations, high_rewards, self.dones, infos = self.env.step(low_transitions['actions'])
                 self.observations = self.observations.copy()
-                # self.running_mean.update(self.observations)
-                # self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
+                self.running_mean.update(self.observations)
+                self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
 
                 low_transitions['next_high_observations'] = self.observations
                 high_transitions['rewards'] += high_rewards
+                context = context - (self.state_preprocess.embedded_state(low_transitions['next_high_observations']) \
+                                     - self.state_preprocess.embedded_state(low_transitions['high_observations']))
 
                 self.dones = np.array(self.dones, dtype=np.float)
 

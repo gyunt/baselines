@@ -28,7 +28,9 @@ def constfn(val):
 
 def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, lr=3e-4,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, sub_goal_dim=8,
-          log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2, meta_action_every_n=4, sampling_size=1024,
+          log_interval=10, nminibatches=4, noptepochs=2, noptepochs_low=4, noptepochs_repr=8, cliprange=0.2,
+          meta_action_every_n=4,
+          sampling_size=1024,
           save_interval=10, load_path=None, model_fn=None, **network_kwargs):
     """
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -112,7 +114,16 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         from baselines.ppo2.model import Model
         model_fn = Model
 
-    subgoal_space = gym.spaces.Box(low=-.1, high=.1, shape=(sub_goal_dim,), dtype=np.float32)
+    subgoal_space = gym.spaces.Box(low=-5., high=5., shape=(sub_goal_dim,), dtype=np.float32)
+    low_ob_high = np.concatenate([
+        # ob_space.high.ravel().astype(np.float),
+        subgoal_space.high.ravel().astype(np.float),
+        subgoal_space.high.ravel().astype(np.float)])
+    low_ob_low = np.concatenate([
+        # ob_space.low.ravel().astype(np.float),
+        subgoal_space.low.ravel().astype(np.float),
+        subgoal_space.low.ravel().astype(np.float)])
+    low_ob_space = gym.spaces.Box(low=low_ob_high, high=low_ob_low, dtype=np.float32)
 
     with tf.Session() as sess:
         high_model = model_fn(name='high_model', policy=policy, ob_space=ob_space, ac_space=subgoal_space,
@@ -120,7 +131,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                               nbatch_train=nbatch_train // meta_action_every_n,
                               sess=sess,
                               nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef, max_grad_norm=max_grad_norm)
-        low_model = model_fn(name='low_model', policy=policy, ob_space=subgoal_space, ac_space=ac_space,
+        low_model = model_fn(name='low_model', policy=policy, ob_space=low_ob_space, ac_space=ac_space,
                              nbatch_act=nenvs,
                              nbatch_train=nbatch_train,
                              sess=sess,
@@ -147,7 +158,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         save_graph("i:/tmp/")
 
         if load_path is not None:
-            load_variables(load_path, sess=sess )
+            load_variables(load_path, sess=sess)
 
         high_allvars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, high_model.scope.name)
         display_var_info(high_allvars)
@@ -204,7 +215,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                     high_loss_vals.append(high_model.train(lrnow, cliprangenow, **slices))
 
             inds = np.arange(nbatch)
-            for _ in range(noptepochs):
+            for _ in range(noptepochs_low):
                 # Randomize the indexes
                 np.random.shuffle(inds)
                 # 0 to batch_size with batch_train_size step
@@ -213,6 +224,16 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                     mbinds = inds[start:end]
                     slices = {key: low_minibatch[key][mbinds] for key in low_minibatch}
                     low_loss_vals.append(low_model.train(lrnow, cliprangenow, **slices))
+                    repr_loss_vals.append(state_preprocess.train(lrnow, **slices))
+
+            for _ in range(noptepochs_repr):
+                # Randomize the indexes
+                np.random.shuffle(inds)
+                # 0 to batch_size with batch_train_size step
+                for start in range(0, nbatch, nbatch_train):
+                    end = start + nbatch_train
+                    mbinds = inds[start:end]
+                    slices = {key: low_minibatch[key][mbinds] for key in low_minibatch}
                     repr_loss_vals.append(state_preprocess.train(lrnow, **slices))
 
             # Feedforward --> get losses --> update
