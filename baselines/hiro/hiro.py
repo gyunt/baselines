@@ -235,7 +235,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('high_rewards_per_step ', safemean(high_minibatch['rewards']))
-                logger.logkv('lowrewards_per_step', safemean(low_minibatch['rewards']))
+                logger.logkv('low_rewards_per_step', safemean(low_minibatch['rewards']))
                 logger.logkv('advantages_per_step', safemean(high_minibatch['advs']))
                 logger.logkv('sampled_estimated_log_partition',
                              safemean(low_minibatch['sampled_estimated_log_partition']))
