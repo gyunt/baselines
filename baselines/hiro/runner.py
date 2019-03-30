@@ -98,7 +98,7 @@ class Runner(AbstractEnvRunner):
                 low_transitions['observations'] = self.state_preprocess.embedded_state(self.observations)
                 low_transitions['dones'] = self.dones
                 low_transitions['high_observations'] = self.observations.copy()
-                low_transitions['discount'] = self.discount[j]
+                low_transitions['discounts'] = self.discount[j]
                 low_transitions['goal_states'] = sub_goals
 
                 if 'next_states' in prev_low_transition:
@@ -144,10 +144,10 @@ class Runner(AbstractEnvRunner):
                 rewards, sampled_estimated_log_partition = self.state_preprocess.low_rewards(
                     begin_high_observations=low_minibatch['begin_high_observations'][-j],
                     high_observations=low_minibatch['high_observations'][-j],
-                    next_high_observations=low_minibatch[
-                        'next_high_observations'][-j],
+                    next_high_observations=low_minibatch['next_high_observations'][-j],
                     low_actions=low_minibatch['low_actions'][-j],
-                    goal_states=sub_goals, )
+                    goal_states=low_minibatch['goal_states'][-j],
+                    discounts=low_minibatch['discounts'][-j])
                 low_minibatch['rewards'].append(rewards)
                 low_minibatch['sampled_estimated_log_partition'].append(sampled_estimated_log_partition)
 

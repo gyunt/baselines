@@ -54,7 +54,7 @@ class StatePreprocess(object):
                 self.goal_states = observation_placeholder(subgoal_space)
                 self.low_actions = tf.placeholder(tf.float32, [None, meta_action_every_n] + list(act_space.shape))
                 self.sampled_estimated_log_partition = tf.placeholder(tf.float32, shape=(None,))
-                self.discount = tf.placeholder(tf.float32, shape=(None,))
+                self.discounts = tf.placeholder(tf.float32, shape=(None,))
 
                 with tf.variable_scope('embed_state'):
                     self.embed_begin_states = tf.to_float(
@@ -101,17 +101,17 @@ class StatePreprocess(object):
                 with tf.variable_scope('loss'):
                     with tf.variable_scope('representation_loss'):
                         # original implementation
-                        self.loss_attractive = tf.reduce_mean(distance(inverse_goal, embed_next_states))
-                        batch_size = tf.shape(inverse_goal)[0]
+                        self.loss_attractive = distance(inverse_goal, embed_next_states)
 
+                        batch_size = tf.shape(inverse_goal)[0]
                         normalized_term = (
                             - distance(sampled_embedded_states[:batch_size], inverse_goal) \
                             - tf.stop_gradient(self.estimated_log_partition)[:, None])
-                        self.loss_repulsive = tf.reduce_mean(tf.exp(normalized_term))
+                        self.loss_repulsive = tf.reduce_mean(tf.exp(normalized_term), axis=1)
+                        loss = tf.reduce_mean(self.discounts * (self.loss_attractive + self.loss_repulsive))
                         self.prior_log_probs = -tf.reduce_mean(
                             self.estimated_log_partition + distance(embed_next_states, inverse_goal))
-                        self.representation_loss = -tf.clip_by_value(self.loss_attractive + self.loss_repulsive,
-                                                                     0, 1)
+                        self.representation_loss = -tf.clip_by_value(loss, 0, 1)
 
             with tf.variable_scope('optimizer'):
                 self.LR = LR = tf.placeholder(tf.float32, [], name='learning_rate')
@@ -156,13 +156,15 @@ class StatePreprocess(object):
     def embedded_state(self, high_observations):
         return self.sess.run(self.embed_states, {self.high_observations: high_observations})
 
-    def low_rewards(self, begin_high_observations, high_observations, next_high_observations, low_actions, goal_states):
+    def low_rewards(self, begin_high_observations, high_observations, next_high_observations, low_actions, goal_states,
+                    discounts):
         return self.sess.run([self._low_rewards, self.estimated_log_partition], {
             self.begin_high_observations: begin_high_observations,
             self.high_observations: high_observations,
             self.next_high_observations: next_high_observations,
             self.low_actions: low_actions,
             self.goal_states: goal_states,
+            self.discounts: discounts,
         })
 
     def train(self,
@@ -172,7 +174,7 @@ class StatePreprocess(object):
               next_high_observations,
               low_actions,
               sampled_estimated_log_partition,
-              discount,
+              discounts,
               goal_states,
               **_kwargs):
         td_map = {
@@ -182,7 +184,7 @@ class StatePreprocess(object):
             self.next_high_observations: next_high_observations,
             self.low_actions: low_actions,
             self.sampled_estimated_log_partition: sampled_estimated_log_partition,
-            self.discount: discount,
+            self.discounts: discounts,
             self.goal_states: goal_states,
         }
 
