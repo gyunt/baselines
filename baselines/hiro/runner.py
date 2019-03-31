@@ -83,11 +83,12 @@ class Runner(AbstractEnvRunner):
         for i in range(1, len(observation_shape)):
             multi *= observation_shape[i]
         low_observation_space = [observation_shape[0], multi]
+        env_observations = self.observations
 
         # For n in range number of steps
         for i in range(self.nsteps // self.meta_action_every_n):
             high_transitions = dict()
-            high_transitions['observations'] = self.observations
+            high_transitions['observations'] = env_observations
             high_transitions['dones'] = self.dones
             if 'next_states' in prev_high_transition:
                 high_transitions['states'] = prev_high_transition['next_states']
@@ -101,7 +102,7 @@ class Runner(AbstractEnvRunner):
 
             for j in range(self.meta_action_every_n):
                 low_transitions = dict()
-                low_transitions['begin_high_observations'] = high_transitions['observations']
+                low_transitions['begin_high_observations'] = env_observations
                 low_transitions['dones'] = self.dones
                 low_transitions['high_observations'] = self.observations
                 low_transitions['discounts'] = self.discount[j]
@@ -123,6 +124,7 @@ class Runner(AbstractEnvRunner):
                 self.observations = self.observations.copy()
                 self.running_mean.update(self.observations)
                 self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
+                env_observations = self.observations
 
                 low_transitions['next_high_observations'] = self.observations
                 high_transitions['rewards'] += high_rewards
@@ -170,7 +172,7 @@ class Runner(AbstractEnvRunner):
                 high_minibatch[key].append(high_transitions[key])
             prev_high_transition = high_transitions
 
-        high_transitions['observations'] = self.observations
+        high_transitions['observations'] = env_observations
         high_transitions['dones'] = self.dones
         if 'states' in high_transitions:
             high_transitions['states'] = high_transitions.pop('next_states')
