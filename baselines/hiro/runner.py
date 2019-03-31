@@ -82,13 +82,13 @@ class Runner(AbstractEnvRunner):
         multi = 1
         for i in range(1, len(observation_shape)):
             multi *= observation_shape[i]
-        low_observation_space = [observation_shape[0], multi]
+        env_observation_space = [observation_shape[0], multi]
         env_observations = self.observations
 
         # For n in range number of steps
         for i in range(self.nsteps // self.meta_action_every_n):
             high_transitions = dict()
-            high_transitions['observations'] = env_observations
+            high_transitions['observations'] = self.state_preprocess.embedded_state(env_observations)
             high_transitions['dones'] = self.dones
             if 'next_states' in prev_high_transition:
                 high_transitions['states'] = prev_high_transition['next_states']
@@ -96,19 +96,21 @@ class Runner(AbstractEnvRunner):
             high_transitions['rewards'] = [0] * self.nenv
             sub_goals = high_transitions['actions']
 
-            low_actions = []
+            low_all_actions = []
             prev_low_transition = dict()
             context = sub_goals
+            begin_env_observations = env_observations
 
             for j in range(self.meta_action_every_n):
                 low_transitions = dict()
-                low_transitions['begin_high_observations'] = env_observations
+                low_transitions['begin_high_observations'] = begin_env_observations
                 low_transitions['dones'] = self.dones
-                low_transitions['high_observations'] = self.observations
+                low_transitions['high_observations'] = env_observations
                 low_transitions['discounts'] = self.discount[j]
                 low_transitions['goal_states'] = sub_goals
                 low_transitions['observations'] = np.concatenate(
                     [
+                        env_observations.reshape(env_observation_space),
                         self.state_preprocess.embedded_state(low_transitions['high_observations']),
                         context,
                     ], axis=1)
@@ -116,7 +118,7 @@ class Runner(AbstractEnvRunner):
                 if 'next_states' in prev_low_transition:
                     low_transitions['states'] = prev_low_transition['next_states']
                 low_transitions.update(self.low_model.step_as_dict(**low_transitions))
-                low_actions.append(low_transitions['actions'])
+                low_all_actions.append(low_transitions['actions'])
 
                 # Take actions in env and look the results
                 # Infos contains a ton of useful informations
@@ -126,7 +128,7 @@ class Runner(AbstractEnvRunner):
                 self.observations = (self.observations - self.running_mean.mean) / np.sqrt(self.running_mean.var + 1e-8)
                 env_observations = self.observations
 
-                low_transitions['next_high_observations'] = self.observations
+                low_transitions['next_high_observations'] = env_observations
                 high_transitions['rewards'] += high_rewards
                 context = context - (self.state_preprocess.embedded_state(low_transitions['next_high_observations']) \
                                      - self.state_preprocess.embedded_state(low_transitions['high_observations']))
@@ -144,24 +146,24 @@ class Runner(AbstractEnvRunner):
                     low_minibatch[key].append(low_transitions[key])
                 prev_low_transition = low_transitions
 
-            if 'low_actions' not in low_minibatch:
-                low_minibatch['low_actions'] = []
+            if 'low_all_actions' not in low_minibatch:
+                low_minibatch['low_all_actions'] = []
             if 'rewards' not in low_minibatch:
                 low_minibatch['rewards'] = []
             if 'end_high_observations' not in low_minibatch:
                 low_minibatch['end_high_observations'] = []
 
-            low_actions = np.array(low_actions).swapaxes(0, 1)
+            low_all_actions = np.array(low_all_actions).swapaxes(0, 1)
             for j in range(self.meta_action_every_n):
                 low_minibatch['end_high_observations'].append(self.observations)
-                low_minibatch['low_actions'].append(low_actions)
+                low_minibatch['low_all_actions'].append(low_all_actions)
 
             for j in range(self.meta_action_every_n):
                 low_rewards = self.state_preprocess.low_rewards(
                     begin_high_observations=low_minibatch['begin_high_observations'][-j],
                     high_observations=low_minibatch['high_observations'][-j],
                     next_high_observations=low_minibatch['next_high_observations'][-j],
-                    low_actions=low_minibatch['low_actions'][-j],
+                    low_all_actions=low_minibatch['low_all_actions'][-j],
                     goal_states=low_minibatch['goal_states'][-j],
                     discounts=low_minibatch['discounts'][-j])
                 low_minibatch['rewards'].append(low_rewards)
@@ -172,7 +174,7 @@ class Runner(AbstractEnvRunner):
                 high_minibatch[key].append(high_transitions[key])
             prev_high_transition = high_transitions
 
-        high_transitions['observations'] = env_observations
+        high_transitions['observations'] = self.state_preprocess.embedded_state(env_observations)
         high_transitions['dones'] = self.dones
         if 'states' in high_transitions:
             high_transitions['states'] = high_transitions.pop('next_states')

@@ -52,7 +52,7 @@ class StatePreprocess(object):
                 self.high_observations = observation_placeholder(ob_space)
                 self.next_high_observations = observation_placeholder(ob_space)
                 self.goal_states = observation_placeholder(subgoal_space)
-                self.low_actions = tf.placeholder(tf.float32, [None, meta_action_every_n] + list(act_space.shape))
+                self.low_all_actions = tf.placeholder(tf.float32, [None, meta_action_every_n] + list(act_space.shape))
                 self.discounts = tf.placeholder(tf.float32, shape=(None,))
 
                 with tf.variable_scope('embed_state'):
@@ -65,12 +65,13 @@ class StatePreprocess(object):
                     self.embed_next_states = embed_next_states = tf.to_float(
                         self._state_preprocess_net(tf.layers.flatten(self.next_high_observations)))
                 with tf.variable_scope('embed_action'):
-                    flatten_high_observations = tf.to_float(tf.layers.flatten(self.high_observations))
-                    embed_action = tf.add_n([self._action_embed_net(tf.layers.flatten(self.low_actions[:, i, :]),
-                                                                    states=self.embed_states)
-                                             for i in range(meta_action_every_n)])
+                    flatten_begin_high_observations = tf.to_float(tf.layers.flatten(self.begin_high_observations))
+                    self.embed_all_action = tf.add_n(
+                        [self._action_embed_net(tf.layers.flatten(self.low_all_actions[:, i, :]),
+                                                states=flatten_begin_high_observations)
+                         for i in range(meta_action_every_n)])
                 with tf.variable_scope('inverse_goal'):
-                    self.inverse_goal = inverse_goal = self.embed_begin_states + embed_action
+                    self.inverse_goal = inverse_goal = self.embed_begin_states + self.embed_all_action
 
                 tau = 2
 
@@ -104,17 +105,20 @@ class StatePreprocess(object):
 
                     with tf.variable_scope('representation_loss'):
                         # original implementation
-                        self.loss_attractive = distance(inverse_goal, embed_next_states)[1:]
-
-                        normalized_minus_distance = \
-                            - distance(embed_next_states[:-1],
-                                       inverse_goal[1:]) \
-                            - tf.stop_gradient(self.estimated_log_partition[1:])
-                        self.loss_repulsive = tf.exp(normalized_minus_distance)
+                        self.loss_attractive = distance(inverse_goal, embed_next_states)
+                        #
+                        # normalized_minus_distance = \
+                        #     - distance(embed_next_states[:-1],
+                        #                inverse_goal[1:]) \
+                        #     - tf.stop_gradient(self.estimated_log_partition[1:])
+                        self.loss_repulsive = tf.reduce_mean(tf.exp(
+                            - distance(tf.stop_gradient(sampled_embedded_states[None, :, :]),
+                                       inverse_goal[:, None, :]) \
+                            - tf.stop_gradient(self.estimated_log_partition)[:, None],
+                        ), axis=1)
                         discount_loss = tf.reduce_mean(
-                            self.discounts[1:] * (self.loss_attractive + self.loss_repulsive))
-                        loss = tf.reduce_mean(self.loss_attractive + self.loss_repulsive)
-                        self.representation_loss = loss
+                            self.discounts * (self.loss_attractive + self.loss_repulsive))
+                        self.representation_loss = tf.reduce_mean(self.loss_attractive + self.loss_repulsive)
 
             with tf.variable_scope('optimizer'):
                 self.LR = LR = tf.placeholder(tf.float32, [], name='learning_rate')
@@ -158,15 +162,16 @@ class StatePreprocess(object):
                     sync_from_root(sess, global_variables)  # pylint: disable=E1101
 
     def embedded_state(self, high_observations):
-        return self.sess.run(self.embed_states, {self.high_observations: high_observations})
+        return self.sess.run(self.embed_states, {self.high_observations: high_observations, })
 
-    def low_rewards(self, begin_high_observations, high_observations, next_high_observations, low_actions, goal_states,
+    def low_rewards(self, begin_high_observations, high_observations, next_high_observations, low_all_actions,
+                    goal_states,
                     discounts, **_kwargs):
         return self.sess.run(self._low_rewards, {
             self.begin_high_observations: begin_high_observations,
             self.high_observations: high_observations,
             self.next_high_observations: next_high_observations,
-            self.low_actions: low_actions,
+            self.low_all_actions: low_all_actions,
             self.goal_states: goal_states,
             self.discounts: discounts,
         })
@@ -177,7 +182,7 @@ class StatePreprocess(object):
               end_high_observations,
               high_observations,
               next_high_observations,
-              low_actions,
+              low_all_actions,
               discounts,
               goal_states,
               **_kwargs):
@@ -187,7 +192,7 @@ class StatePreprocess(object):
             self.end_high_observations: end_high_observations,
             self.high_observations: high_observations,
             self.next_high_observations: next_high_observations,
-            self.low_actions: low_actions,
+            self.low_all_actions: low_all_actions,
             self.discounts: discounts,
             self.goal_states: goal_states,
         }

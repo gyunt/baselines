@@ -115,18 +115,28 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         model_fn = Model
 
     subgoal_space = gym.spaces.Box(low=-5., high=5., shape=(sub_goal_dim,), dtype=np.float32)
+    high_ob_high = np.concatenate([
+        ob_space.high.ravel().astype(np.float),
+        # subgoal_space.high.ravel().astype(np.float),
+        subgoal_space.high.ravel().astype(np.float)])
+    high_ob_low = np.concatenate([
+        ob_space.low.ravel().astype(np.float),
+        # subgoal_space.low.ravel().astype(np.float),
+        subgoal_space.low.ravel().astype(np.float)])
+    high_ob_space = gym.spaces.Box(low=high_ob_low, high=high_ob_high, dtype=np.float32)
+
     low_ob_high = np.concatenate([
-        # ob_space.high.ravel().astype(np.float),
+        ob_space.high.ravel().astype(np.float),
         subgoal_space.high.ravel().astype(np.float),
         subgoal_space.high.ravel().astype(np.float)])
     low_ob_low = np.concatenate([
-        # ob_space.low.ravel().astype(np.float),
+        ob_space.low.ravel().astype(np.float),
         subgoal_space.low.ravel().astype(np.float),
         subgoal_space.low.ravel().astype(np.float)])
     low_ob_space = gym.spaces.Box(low=low_ob_low, high=low_ob_high, dtype=np.float32)
 
     with tf.Session() as sess:
-        high_model = model_fn(name='high_model', policy=policy, ob_space=ob_space, ac_space=subgoal_space,
+        high_model = model_fn(name='high_model', policy=policy, ob_space=high_ob_space, ac_space=subgoal_space,
                               nbatch_act=nenvs,
                               nbatch_train=nbatch_train // meta_action_every_n,
                               sess=sess,
