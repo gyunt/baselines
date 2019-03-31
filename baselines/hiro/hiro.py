@@ -123,7 +123,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         # ob_space.low.ravel().astype(np.float),
         subgoal_space.low.ravel().astype(np.float),
         subgoal_space.low.ravel().astype(np.float)])
-    low_ob_space = gym.spaces.Box(low=low_ob_high, high=low_ob_low, dtype=np.float32)
+    low_ob_space = gym.spaces.Box(low=low_ob_low, high=low_ob_high, dtype=np.float32)
 
     with tf.Session() as sess:
         high_model = model_fn(name='high_model', policy=policy, ob_space=ob_space, ac_space=subgoal_space,
