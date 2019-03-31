@@ -146,8 +146,12 @@ class Runner(AbstractEnvRunner):
                 low_minibatch['low_actions'] = []
             if 'rewards' not in low_minibatch:
                 low_minibatch['rewards'] = []
+            if 'end_high_observations' not in low_minibatch:
+                low_minibatch['end_high_observations'] = []
+
             low_actions = np.array(low_actions).swapaxes(0, 1)
             for j in range(self.meta_action_every_n):
+                low_minibatch['end_high_observations'].append(self.observations)
                 low_minibatch['low_actions'].append(low_actions)
 
             for j in range(self.meta_action_every_n):

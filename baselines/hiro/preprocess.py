@@ -48,6 +48,7 @@ class StatePreprocess(object):
                     create_scope_now_=True)
 
                 self.begin_high_observations = observation_placeholder(ob_space)
+                self.end_high_observations = observation_placeholder(ob_space)
                 self.high_observations = observation_placeholder(ob_space)
                 self.next_high_observations = observation_placeholder(ob_space)
                 self.goal_states = observation_placeholder(subgoal_space)
@@ -57,6 +58,8 @@ class StatePreprocess(object):
                 with tf.variable_scope('embed_state'):
                     self.embed_begin_states = tf.to_float(
                         self._state_preprocess_net(tf.layers.flatten(self.begin_high_observations)))
+                    self.embed_end_states = tf.to_float(
+                        self._state_preprocess_net(tf.layers.flatten(self.end_high_observations)))
                     self.embed_states = tf.to_float(
                         self._state_preprocess_net(tf.layers.flatten(self.high_observations)))
                     self.embed_next_states = embed_next_states = tf.to_float(
@@ -67,7 +70,7 @@ class StatePreprocess(object):
                                                                     states=self.embed_states)
                                              for i in range(meta_action_every_n)])
                 with tf.variable_scope('inverse_goal'):
-                    self.inverse_goal = inverse_goal = embed_action + self.embed_begin_states
+                    self.inverse_goal = inverse_goal = self.embed_begin_states + embed_action
 
                 tau = 2
 
@@ -158,7 +161,7 @@ class StatePreprocess(object):
         return self.sess.run(self.embed_states, {self.high_observations: high_observations})
 
     def low_rewards(self, begin_high_observations, high_observations, next_high_observations, low_actions, goal_states,
-                    discounts):
+                    discounts, **_kwargs):
         return self.sess.run(self._low_rewards, {
             self.begin_high_observations: begin_high_observations,
             self.high_observations: high_observations,
@@ -171,6 +174,7 @@ class StatePreprocess(object):
     def train(self,
               lr,
               begin_high_observations,
+              end_high_observations,
               high_observations,
               next_high_observations,
               low_actions,
@@ -180,6 +184,7 @@ class StatePreprocess(object):
         td_map = {
             self.LR: lr,
             self.begin_high_observations: begin_high_observations,
+            self.end_high_observations: end_high_observations,
             self.high_observations: high_observations,
             self.next_high_observations: next_high_observations,
             self.low_actions: low_actions,
