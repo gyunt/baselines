@@ -96,22 +96,22 @@ class StatePreprocess(object):
                         # + distance(embed_next_states, inverse_goal) + estimated_log_partition
 
                 with tf.variable_scope('loss'):
-                    self.prior_log_probs = -tf.reduce_mean(
+                    self.prior_log_probs = tf.reduce_mean(
                         self.estimated_log_partition + distance(embed_next_states, inverse_goal))
 
                     with tf.variable_scope('representation_loss'):
                         # original implementation
                         self.loss_attractive = distance(inverse_goal, embed_next_states)[1:]
 
-                        normalized_term = \
-                                - distance(embed_next_states[:-1],
-                                           inverse_goal[1:]) \
-                                - tf.stop_gradient(self.estimated_log_partition[1:])
-                        self.loss_repulsive = tf.exp(normalized_term)
+                        normalized_minus_distance = \
+                            - distance(embed_next_states[:-1],
+                                       inverse_goal[1:]) \
+                            - tf.stop_gradient(self.estimated_log_partition[1:])
+                        self.loss_repulsive = tf.exp(normalized_minus_distance)
                         discount_loss = tf.reduce_mean(
                             self.discounts[1:] * (self.loss_attractive + self.loss_repulsive))
                         loss = tf.reduce_mean(self.loss_attractive + self.loss_repulsive)
-                        self.representation_loss = -loss
+                        self.representation_loss = loss
 
             with tf.variable_scope('optimizer'):
                 self.LR = LR = tf.placeholder(tf.float32, [], name='learning_rate')
@@ -139,12 +139,13 @@ class StatePreprocess(object):
                 self.var = var
                 self._train_op = self.trainer.apply_gradients(grads_and_var)
                 self.stats_names = ['loss_total', 'elp', 'loss_attractive', 'loss_repulsive', 'dst_goal',
-                                    'dst_inverse']
+                                    'dst_inverse', 'prior_log_prob']
                 self.stats_list = [self.representation_loss, tf.reduce_mean(self.estimated_log_partition),
                                    tf.reduce_mean(self.loss_attractive),
                                    tf.reduce_mean(self.loss_repulsive),
                                    tf.reduce_mean(distance(embed_next_states, self.goal_states)),
-                                   tf.reduce_mean(distance(embed_next_states, inverse_goal))]
+                                   tf.reduce_mean(distance(embed_next_states, inverse_goal)),
+                                   self.prior_log_probs]
 
             with tf.variable_scope('initialization'):
                 self.sess.run(tf.initializers.variables(tf.global_variables(self.scope.name)))
