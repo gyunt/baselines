@@ -91,7 +91,7 @@ class Runner(AbstractEnvRunner):
             high_transitions['observations'] = np.concatenate(
                 [
                     env_observations.reshape(env_observation_space),
-                    self.state_preprocess.embedded_state(env_observations)
+                    # self.state_preprocess.embedded_state(env_observations)
                 ], axis=1)
             high_transitions['dones'] = self.dones
             if 'next_states' in prev_high_transition:
@@ -115,7 +115,7 @@ class Runner(AbstractEnvRunner):
                 low_transitions['observations'] = np.concatenate(
                     [
                         env_observations.reshape(env_observation_space),
-                        self.state_preprocess.embedded_state(low_transitions['high_observations']),
+                        # self.state_preprocess.embedded_state(low_transitions['high_observations']),
                         context,
                     ], axis=1)
 
@@ -181,7 +181,7 @@ class Runner(AbstractEnvRunner):
         high_transitions['observations'] = np.concatenate(
             [
                 env_observations.reshape(env_observation_space),
-                self.state_preprocess.embedded_state(env_observations),
+                # self.state_preprocess.embedded_state(env_observations),
             ], axis=1)
         high_transitions['dones'] = self.dones
         if 'states' in high_transitions:

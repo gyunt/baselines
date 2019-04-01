@@ -118,21 +118,25 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
     high_ob_high = np.concatenate([
         ob_space.high.ravel().astype(np.float),
         # subgoal_space.high.ravel().astype(np.float),
-        subgoal_space.high.ravel().astype(np.float)])
+        # subgoal_space.high.ravel().astype(np.float)
+    ])
     high_ob_low = np.concatenate([
         ob_space.low.ravel().astype(np.float),
         # subgoal_space.low.ravel().astype(np.float),
-        subgoal_space.low.ravel().astype(np.float)])
+        # subgoal_space.low.ravel().astype(np.float)
+    ])
     high_ob_space = gym.spaces.Box(low=high_ob_low, high=high_ob_high, dtype=np.float32)
 
     low_ob_high = np.concatenate([
         ob_space.high.ravel().astype(np.float),
         subgoal_space.high.ravel().astype(np.float),
-        subgoal_space.high.ravel().astype(np.float)])
+        # subgoal_space.high.ravel().astype(np.float)
+    ])
     low_ob_low = np.concatenate([
         ob_space.low.ravel().astype(np.float),
         subgoal_space.low.ravel().astype(np.float),
-        subgoal_space.low.ravel().astype(np.float)])
+        # subgoal_space.low.ravel().astype(np.float)
+    ])
     low_ob_space = gym.spaces.Box(low=low_ob_low, high=low_ob_high, dtype=np.float32)
 
     with tf.Session() as sess:
