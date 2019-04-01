@@ -167,15 +167,17 @@ class StatePreprocess(object):
                             lambda: tf.constant(False, dtype=tf.bool))
                 ]):
                     self._train_op = self.trainer.apply_gradients(grads_and_var)
-                self.stats_names = ['loss_total', 'elp', 'loss_attractive', 'loss_repulsive',
+                self.stats_names = ['loss_total',
+                                    'loss_attractive',
+                                    'loss_repulsive',
                                     'dst_goal',
-                                    'dst_inverse', 'prior_log_prob']
-                self.stats_list = [self.representation_loss, tf.reduce_mean(self.estimated_log_partition),
+                                    'dst_inverse']
+                self.stats_list = [self.representation_loss,
                                    tf.reduce_mean(self.loss_attractive),
                                    tf.reduce_mean(self.loss_repulsive),
                                    tf.reduce_mean(distance(self.embed_next_states, self.goal_states)),
                                    tf.reduce_mean(distance(self.embed_next_states, inverse_goal)),
-                                   self.prior_log_probs]
+                                   ]
 
             with tf.variable_scope('initialization'):
                 self.sess.run(tf.initializers.variables(tf.global_variables(self.scope.name)))
