@@ -189,13 +189,14 @@ class StatePreprocess(object):
     def embedded_state(self, high_observations):
         return self.sess.run(self.embed_states, {self.high_observations: high_observations, })
 
-    def low_rewards(self, begin_high_observations, high_observations, next_high_observations,
+    def low_rewards(self, begin_high_observations, high_observations, next_high_observations, low_all_actions,
                     goal_states,
                     discounts, **_kwargs):
         return self.sess.run(self._low_rewards, {
             self.begin_high_observations: begin_high_observations,
             self.high_observations: high_observations,
             self.next_high_observations: next_high_observations,
+            self.low_all_actions: low_all_actions,
             self.goal_states: goal_states,
             self.discounts: discounts,
         })
