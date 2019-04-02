@@ -110,7 +110,7 @@ class Runner(AbstractEnvRunner):
                 low_transitions['begin_high_observations'] = begin_env_observations
                 low_transitions['dones'] = self.dones
                 low_transitions['high_observations'] = env_observations
-                low_transitions['discounts'] = self.discount
+                low_transitions['discounts'] = self.discount[j]
                 low_transitions['goal_states'] = sub_goals
                 low_transitions['observations'] = np.concatenate(
                     [
