@@ -9,7 +9,7 @@ from baselines import logger
 from baselines.common import explained_variance
 from baselines.common import set_global_seeds
 from baselines.common.tf_util import display_var_info, save_variables, load_variables
-from baselines.hiro.preprocess import StatePreprocess, state_preprocess_net, action_embed_net
+from baselines.hiro.preprocess import StatePreprocess, state_preprocess_net, action_embed_net, meta_action_embed_net
 from baselines.hiro.runner import Runner
 from baselines.ppo2.policies import build_ppo_policy
 
@@ -159,6 +159,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             meta_action_every_n=meta_action_every_n,
             state_preprocess_net=state_preprocess_net,
             action_embed_net=action_embed_net,
+            meta_action_embed_net=meta_action_embed_net,
             max_grad_norm=max_grad_norm)
 
         def save_graph(path, sess=None, graph=None):

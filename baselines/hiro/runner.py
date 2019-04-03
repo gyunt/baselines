@@ -98,11 +98,11 @@ class Runner(AbstractEnvRunner):
                 high_transitions['states'] = prev_high_transition['next_states']
             high_transitions.update(self.high_model.step_as_dict(**high_transitions))
             high_transitions['rewards'] = [0] * self.nenv
-            sub_goals = high_transitions['actions']
+            meta_actions = high_transitions['actions']
 
             low_all_actions = []
             prev_low_transition = dict()
-            context = sub_goals
+            context = self.state_preprocess.get_goal_states(meta_actions=meta_actions)
             begin_env_observations = env_observations
 
             for j in range(self.meta_action_every_n):
@@ -111,7 +111,7 @@ class Runner(AbstractEnvRunner):
                 low_transitions['dones'] = self.dones
                 low_transitions['high_observations'] = env_observations
                 low_transitions['discounts'] = self.discount[j]
-                low_transitions['goal_states'] = sub_goals
+                low_transitions['meta_actions'] = meta_actions
                 low_transitions['observations'] = np.concatenate(
                     [
                         env_observations.reshape(env_observation_space),
@@ -167,8 +167,8 @@ class Runner(AbstractEnvRunner):
                     begin_high_observations=low_minibatch['begin_high_observations'][-j],
                     high_observations=low_minibatch['high_observations'][-j],
                     next_high_observations=low_minibatch['next_high_observations'][-j],
-                    low_all_actions=low_minibatch['low_all_actions'][-j],
-                    goal_states=low_minibatch['goal_states'][-j],
+                    end_high_observations=low_minibatch['end_high_observations'][-j],
+                    meta_actions=low_minibatch['meta_actions'][-j],
                     discounts=low_minibatch['discounts'][-j])
                 low_minibatch['rewards'].append(low_rewards)
 
