@@ -26,7 +26,7 @@ def constfn(val):
     return f
 
 
-def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, lr=3e-4,
+def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, ent_coef_low=0.0, lr=3e-4,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, sub_goal_dim=8,
           log_interval=10, nminibatches=4, noptepochs=2, noptepochs_low=4, noptepochs_repr=8, cliprange=0.2,
           meta_action_every_n=4,
@@ -149,7 +149,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                              nbatch_act=nenvs,
                              nbatch_train=nbatch_train,
                              sess=sess,
-                             nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef, max_grad_norm=max_grad_norm)
+                             nsteps=nsteps, ent_coef=ent_coef_low, vf_coef=vf_coef, max_grad_norm=max_grad_norm)
 
         state_preprocess = StatePreprocess(
             ob_space=ob_space,
