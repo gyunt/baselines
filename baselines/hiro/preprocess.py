@@ -2,6 +2,7 @@ from copy import copy
 
 import numpy as np
 import tensorflow as tf
+
 from baselines.common.input import observation_placeholder
 
 try:
@@ -14,6 +15,7 @@ except ImportError:
 
 class StatePreprocess(object):
     STATE_PREPROCESS_NET_SCOPE = 'state_process_net'
+    INVERSE_STATE_NET_SCOPE = 'inverse_state_net'
     ACTION_EMBED_NET_SCOPE = 'action_embed_net'
     META_ACTION_EMBED_NET_SCOPE = 'meta_action_embed_net'
 
@@ -42,6 +44,10 @@ class StatePreprocess(object):
                 self._state_preprocess_net = tf.make_template(
                     self.STATE_PREPROCESS_NET_SCOPE, state_preprocess_net,
                     num_output_dims=self.goal_dims,
+                    create_scope_now_=True)
+                self._inverse_state = tf.make_template(
+                    self.INVERSE_STATE_NET_SCOPE, inverse_state_net,
+                    num_output_dims=int(np.prod(ob_space.shape)),
                     create_scope_now_=True)
                 self._action_embed_net = tf.make_template(
                     self.ACTION_EMBED_NET_SCOPE, action_embed_net,
@@ -79,6 +85,13 @@ class StatePreprocess(object):
                         [self._action_embed_net(tf.layers.flatten(self.low_all_actions[:, i, :]),
                                                 states=flatten_begin_high_observations)
                          for i in range(meta_action_every_n)])
+
+                with tf.variable_scope('inverse_state'):
+                    self.inverse_state = self._inverse_state(self.embed_states)
+                    self.inverse_next_state = self._inverse_state(self.embed_states + \
+                                                                  self._action_embed_net(
+                                                                      tf.layers.flatten(self.actions),
+                                                                      states=flatten_begin_high_observations))
 
                 with tf.variable_scope('inverse_goal'):
                     self.inverse_goal = inverse_goal = self.embed_begin_states + self.embed_all_action
@@ -168,6 +181,10 @@ class StatePreprocess(object):
                         axis=1
                     ))
 
+                    self.loss_inverse = tf.reduce_mean(
+                        tf.squared_difference(tf.layers.flatten(self.high_observations), self.inverse_state) + \
+                        tf.squared_difference(tf.layers.flatten(self.next_high_observations), self.inverse_next_state))
+
                     # meta loss
                     # self.loss_meta = tf.squared_difference(tf.abs(self.goal_states),
                     #                                        tf.stop_gradient(
@@ -227,6 +244,7 @@ class StatePreprocess(object):
                                     'goal_size',
                                     'embed_size',
                                     'loss_meta',
+                                    'loss_inverse',
                                     ]
                 self.stats_list = [self.representation_loss,
                                    tf.reduce_mean(self.loss_attractive),
@@ -236,6 +254,7 @@ class StatePreprocess(object):
                                    tf.reduce_mean(tf.abs(self.goal_states)),
                                    tf.reduce_mean(tf.abs(self.embed_states)),
                                    tf.reduce_mean(self.loss_meta),
+                                   tf.reduce_mean(self.loss_inverse),
                                    ]
 
             with tf.variable_scope('initialization'):
@@ -340,6 +359,52 @@ def state_preprocess_net(
     output = embed
     output = tf.cast(output, states_dtype)
     return output
+
+
+def inverse_state_net(
+    states,
+    num_output_dims=2,
+    states_hidden_layers=(64, 64),
+    normalizer_fn=None,
+    activation_fn=tf.nn.relu,
+    zero_time=True,
+    images=False):
+    """Creates a simple feed forward net for embedding states.
+    """
+    with slim.arg_scope(
+        [slim.fully_connected],
+        activation_fn=activation_fn,
+        normalizer_fn=normalizer_fn,
+        weights_initializer=slim.variance_scaling_initializer(
+            factor=1.0 / 3.0, mode='FAN_IN', uniform=True),
+    ):
+
+        states_shape = tf.shape(states)
+        states_dtype = states.dtype
+        states = tf.to_float(states)
+        orig_states = states
+        if images:  # Zero-out x-y
+            states *= tf.constant([0.] * 2 + [1.] * (states.shape[-1] - 2), dtype=states.dtype)
+
+        # if zero_time:
+        #     states *= tf.constant([1.] * (states.shape[-1] - 1) + [0.], dtype=states.dtype)
+        embed = states
+        if states_hidden_layers:
+            embed = slim.stack(embed, slim.fully_connected, states_hidden_layers,
+                               scope='states')
+
+        with slim.arg_scope([slim.fully_connected],
+                            weights_regularizer=None,
+                            weights_initializer=tf.random_uniform_initializer(
+                                minval=-0.003, maxval=0.003)):
+            embed = slim.fully_connected(embed, num_output_dims,
+                                         activation_fn=None,
+                                         normalizer_fn=None,
+                                         scope='value')
+
+        output = embed
+        output = tf.cast(output, states_dtype)
+        return output
 
 
 def action_embed_net(
