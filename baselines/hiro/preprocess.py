@@ -4,8 +4,6 @@ import numpy as np
 import tensorflow as tf
 from baselines.common.input import observation_placeholder
 
-slim = tf.contrib.slim
-
 try:
     from baselines.common.mpi_adam_optimizer import MpiAdamOptimizer
     from mpi4py import MPI
@@ -301,40 +299,25 @@ def state_preprocess_net(
     images=False):
     """Creates a simple feed forward net for embedding states.
     """
-    with slim.arg_scope(
-        [slim.fully_connected],
-        activation_fn=activation_fn,
-        normalizer_fn=normalizer_fn,
-        weights_initializer=slim.variance_scaling_initializer(
-            factor=1.0 / 3.0, mode='FAN_IN', uniform=True),
-    ):
+    states_shape = tf.shape(states)
+    states_dtype = states.dtype
+    states = tf.to_float(states)
+    orig_states = states
+    if images:  # Zero-out x-y
+        states *= tf.constant([0.] * 2 + [1.] * (states.shape[-1] - 2), dtype=states.dtype)
 
-        states_shape = tf.shape(states)
-        states_dtype = states.dtype
-        states = tf.to_float(states)
-        orig_states = states
-        if images:  # Zero-out x-y
-            states *= tf.constant([0.] * 2 + [1.] * (states.shape[-1] - 2), dtype=states.dtype)
+    # if zero_time:
+    #     states *= tf.constant([1.] * (states.shape[-1] - 1) + [0.], dtype=states.dtype)
 
-        # if zero_time:
-        #     states *= tf.constant([1.] * (states.shape[-1] - 1) + [0.], dtype=states.dtype)
-        embed = states
-        if states_hidden_layers:
-            embed = slim.stack(embed, slim.fully_connected, states_hidden_layers,
-                               scope='states')
-
-        with slim.arg_scope([slim.fully_connected],
-                            weights_regularizer=None,
-                            weights_initializer=tf.random_uniform_initializer(
-                                minval=-0.003, maxval=0.003)):
-            embed = slim.fully_connected(embed, num_output_dims,
-                                         activation_fn=None,
-                                         normalizer_fn=None,
-                                         scope='value')
-
-        output = embed
-        output = tf.cast(output, states_dtype)
-        return output
+    embed = tf.layers.dense(states, 64, activation_fn, kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
+        factor=1.0 / 3.0, mode='FAN_IN', uniform=True))
+    embed = tf.layers.dense(embed, 64, activation_fn, kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
+        factor=1.0 / 3.0, mode='FAN_IN', uniform=True))
+    embed = tf.layers.dense(embed, num_output_dims, None, kernel_initializer=tf.random_uniform_initializer(
+        minval=-0.003, maxval=0.003))
+    output = embed
+    output = tf.cast(output, states_dtype)
+    return output
 
 
 def action_embed_net(
@@ -348,44 +331,28 @@ def action_embed_net(
     images=False):
     """Creates a simple feed forward net for embedding actions.
     """
-    with slim.arg_scope(
-        [slim.fully_connected],
-        activation_fn=activation_fn,
-        normalizer_fn=normalizer_fn,
-        weights_initializer=slim.variance_scaling_initializer(
-            factor=1.0 / 3.0, mode='FAN_IN', uniform=True),
-    ):
 
-        actions = tf.to_float(actions)
-        if states is not None:
-            if images:  # Zero-out x-y
-                states *= tf.constant([0.] * 2 + [1.] * (states.shape[-1] - 2), dtype=tf.float32)
-            if zero_time:
-                states *= tf.constant([1.] * (states.shape[-1] - 1) + [0.], dtype=tf.float32)
+    actions = tf.to_float(actions)
+    if states is not None:
+        if images:  # Zero-out x-y
+            states *= tf.constant([0.] * 2 + [1.] * (states.shape[-1] - 2), dtype=tf.float32)
+        if zero_time:
+            states *= tf.constant([1.] * (states.shape[-1] - 1) + [0.], dtype=tf.float32)
 
-            if not states.dtype.is_floating:
-                states = tf.to_float(states)
-            if states.shape.ndims != 2:
-                states = tf.layers.flatten(states)
-            actions = tf.concat([actions, states], -1)
+        if not states.dtype.is_floating:
+            states = tf.to_float(states)
+        if states.shape.ndims != 2:
+            states = tf.layers.flatten(states)
+        actions = tf.concat([actions, states], -1)
 
-        embed = actions
-        if hidden_layers:
-            embed = slim.stack(embed, slim.fully_connected, hidden_layers,
-                               scope='hidden')
-
-        with slim.arg_scope([slim.fully_connected],
-                            weights_regularizer=None,
-                            weights_initializer=tf.random_uniform_initializer(
-                                minval=-0.003, maxval=0.003)):
-            embed = slim.fully_connected(embed, num_output_dims,
-                                         activation_fn=None,
-                                         normalizer_fn=None,
-                                         scope='value')
-            if num_output_dims == 1:
-                return embed[:, 0, ...]
-            else:
-                return embed
+    embed = actions
+    embed = tf.layers.dense(embed, 64, activation_fn, True, kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
+        factor=1.0 / 3.0, mode='FAN_IN', uniform=True))
+    embed = tf.layers.dense(embed, 64, activation_fn, True, kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
+        factor=1.0 / 3.0, mode='FAN_IN', uniform=True))
+    embed = tf.layers.dense(embed, num_output_dims, None, True, kernel_initializer=tf.random_uniform_initializer(
+        minval=-0.003, maxval=0.003))
+    return embed
 
 
 def meta_action_embed_net(
@@ -396,19 +363,13 @@ def meta_action_embed_net(
     activation_fn=None):
     """Creates a simple feed forward net for embedding actions.
     """
-    with slim.arg_scope(
-        [slim.fully_connected],
-        activation_fn=activation_fn,
-        normalizer_fn=normalizer_fn,
-        weights_initializer=slim.variance_scaling_initializer(
-            factor=1.0 / 3.0, mode='FAN_IN', uniform=True),
-    ):
-        embed = meta_actions
-        tau = tf.get_variable("tau", shape=(num_output_dims,), initializer=tf.constant_initializer(0.05))
-        b = tf.get_variable("bb", shape=(num_output_dims,), initializer=tf.constant_initializer(0.))
-        embed = tau * embed + b
 
-        return embed
+    embed = meta_actions
+    tau = tf.get_variable("tau", shape=(num_output_dims,), initializer=tf.constant_initializer(0.05))
+    b = tf.get_variable("bb", shape=(num_output_dims,), initializer=tf.constant_initializer(0.))
+    embed = tau * embed + b
+
+    return embed
 
 
 def distance(a, b, tau=.05, delta=0.1, ):
