@@ -470,27 +470,13 @@ def meta_action_embed_net(
     ):
         embed = meta_actions
         tau = tf.get_variable("tau", shape=(num_output_dims,), initializer=tf.constant_initializer(0.05))
-        embed = tau * embed
+        b = tf.get_variable("bb", shape=(num_output_dims,), initializer=tf.constant_initializer(0.))
+        embed = tau * embed + b
 
-        # if hidden_layers:
-        #     embed = slim.stack(embed, slim.fully_connected, hidden_layers,
-        #                        scope='hidden')
-        #
-        # with slim.arg_scope([slim.fully_connected],
-        #                     weights_regularizer=None,
-        #                     weights_initializer=tf.random_uniform_initializer(
-        #                         minval=-0.003, maxval=0.003)):
-        #     embed = slim.fully_connected(embed, num_output_dims,
-        #                                  activation_fn=None,
-        #                                  normalizer_fn=None,
-        #                                  scope='value')
-        #     if num_output_dims == 1:
-        #         return embed[:, 0, ...]
-        #     else:
         return embed
 
 
-def distance(a, b, tau=1., delta=0.1, ):
+def distance(a, b, tau=.05, delta=0.1, ):
     return tau * tf.reduce_mean(huber(a - b, delta=delta), -1)
 
 

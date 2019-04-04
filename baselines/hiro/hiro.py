@@ -5,7 +5,6 @@ from collections import deque
 import gym
 import numpy as np
 import tensorflow as tf
-
 from baselines import logger
 from baselines.common import explained_variance
 from baselines.common import set_global_seeds
@@ -116,30 +115,19 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         from baselines.ppo2.model import Model
         model_fn = Model
 
-    subgoal_space = gym.spaces.Box(low=-5., high=5., shape=(sub_goal_dim,), dtype=np.float32)
-    high_ob_high = np.concatenate([
-        ob_space.high.ravel().astype(np.float),
-        # subgoal_space.high.ravel().astype(np.float),
-        # subgoal_space.high.ravel().astype(np.float)
-    ])
-    high_ob_low = np.concatenate([
-        ob_space.low.ravel().astype(np.float),
-        # subgoal_space.low.ravel().astype(np.float),
-        # subgoal_space.low.ravel().astype(np.float)
-    ])
-    high_ob_space = gym.spaces.Box(low=high_ob_low, high=high_ob_high, dtype=np.float32)
+    subgoal_space = gym.spaces.Box(low=-1., high=1., shape=(sub_goal_dim,), dtype=np.float32)
+    low_op_shape = (get_ob_size(ob_space.shape) + \
+                    get_ob_size(subgoal_space.shape) + \
+                    get_ob_size(subgoal_space.shape)
+                    ,)
+    low_ob_space = gym.spaces.Box(low=-1., high=1., shape=low_op_shape, dtype=np.float32)
 
-    low_ob_high = np.concatenate([
-        ob_space.high.ravel().astype(np.float),
-        subgoal_space.high.ravel().astype(np.float),
-        # subgoal_space.high.ravel().astype(np.float),
-    ])
-    low_ob_low = np.concatenate([
-        ob_space.low.ravel().astype(np.float),
-        subgoal_space.low.ravel().astype(np.float),
-        # subgoal_space.low.ravel().astype(np.float),
-    ])
-    low_ob_space = gym.spaces.Box(low=low_ob_low, high=low_ob_high, dtype=np.float32)
+    high_ob_shape = (get_ob_size(ob_space.shape) + \
+                     get_ob_size(subgoal_space.shape) + \
+                     get_ob_size(ob_space.shape) * meta_action_every_n + \
+                     get_ob_size(ac_space.shape) * meta_action_every_n
+                     ,)
+    high_ob_space = gym.spaces.Box(low=-1., high=1., shape=high_ob_shape, dtype=np.float32)
 
     with tf.Session() as sess:
         high_model = model_fn(name='high_model', policy=policy, ob_space=high_ob_space, ac_space=subgoal_space,
@@ -190,6 +178,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         # Instantiate the runner object
         runner = Runner(env=env, high_model=high_model, low_model=low_model, state_preprocess=state_preprocess,
                         nsteps=nsteps, meta_action_every_n=meta_action_every_n, gamma=gamma, ob_space=ob_space,
+                        ac_space=ac_space,
                         sess=sess,
                         lam=lam)
 
@@ -303,3 +292,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
 # Avoid division error when calculate the mean (in our case if epinfo is empty returns np.nan, not return an error)
 def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
+
+
+def get_ob_size(shape):
+    return int(np.prod(shape))
