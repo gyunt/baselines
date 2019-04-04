@@ -169,6 +169,7 @@ class Runner(AbstractEnvRunner):
                     next_high_observations=low_minibatch['next_high_observations'][-j],
                     end_high_observations=low_minibatch['end_high_observations'][-j],
                     meta_actions=low_minibatch['meta_actions'][-j],
+                    low_all_actions=low_all_actions,
                     discounts=low_minibatch['discounts'][-j])
                 low_minibatch['rewards'].append(low_rewards)
 

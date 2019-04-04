@@ -5,6 +5,7 @@ from collections import deque
 import gym
 import numpy as np
 import tensorflow as tf
+
 from baselines import logger
 from baselines.common import explained_variance
 from baselines.common import set_global_seeds
@@ -26,7 +27,8 @@ def constfn(val):
     return f
 
 
-def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, ent_coef_low=0.0, lr=3e-4,
+def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, ent_coef_low=0.0,
+          lr=3e-4,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, sub_goal_dim=8,
           log_interval=10, nminibatches=4, noptepochs=2, noptepochs_low=4, noptepochs_repr=8, cliprange=0.2,
           meta_action_every_n=4,
@@ -130,12 +132,12 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
     low_ob_high = np.concatenate([
         ob_space.high.ravel().astype(np.float),
         subgoal_space.high.ravel().astype(np.float),
-        # subgoal_space.high.ravel().astype(np.float)
+        # subgoal_space.high.ravel().astype(np.float),
     ])
     low_ob_low = np.concatenate([
         ob_space.low.ravel().astype(np.float),
         subgoal_space.low.ravel().astype(np.float),
-        # subgoal_space.low.ravel().astype(np.float)
+        # subgoal_space.low.ravel().astype(np.float),
     ])
     low_ob_space = gym.spaces.Box(low=low_ob_low, high=low_ob_high, dtype=np.float32)
 
