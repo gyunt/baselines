@@ -104,6 +104,21 @@ class StatePreprocess(object):
                             axis=-1) \
                         - np.log(self.sampling_size)
 
+                # with tf.control_dependencies([tf.print(
+                #     tau,
+                #     b,
+                # )]):
+                #     "state_preprocess/model/meta_action_embed_net/tau",
+                # "state_preprocess/model/meta_action_embed_net/bb"
+                #
+
+                aa = \
+                    [v for v in tf.global_variables() if
+                     v.name == "state_preprocess/model/meta_action_embed_net/tau:0"][0]
+                bb = \
+                    [v for v in tf.global_variables() if v.name == "state_preprocess/model/meta_action_embed_net/bb:0"][
+                        0]
+
                 with tf.control_dependencies([
                     upd,
                     tf.assign_add(self.t2, 1),
@@ -117,16 +132,18 @@ class StatePreprocess(object):
                                                                      self.goal_states)),
                                 '\ncurrent:', self.embed_states[0],
                                 '\nnext:', self.embed_next_states[0],
+                                '\naa:', aa,
+                                '\nbb:', bb,
                             ),
                             lambda: tf.constant(False, dtype=tf.bool))
                 ]):
                     with tf.variable_scope('low_rewards'):
                         # original rewards
-                        self._low_rewards = -distance(self.embed_next_states, self.goal_states)
+                        # self._low_rewards = -distance(self.embed_next_states, self.goal_states)
 
                         # modified rewards
-                        # self._low_rewards = distance(self.embed_states, self.goal_states) \
-                        #                     - distance(self.embed_next_states, self.goal_states)
+                        self._low_rewards = distance(self.embed_states, self.goal_states) \
+                                            - distance(self.embed_next_states, self.goal_states)
 
                 with tf.variable_scope('loss'):
                     self.prior_log_probs = tf.reduce_mean(
@@ -152,12 +169,17 @@ class StatePreprocess(object):
                     ))
 
                     # meta loss
-                    self.loss_meta = tf.squared_difference(tf.abs(self.goal_states),
-                                                           tf.stop_gradient(
-                                                               tf.abs(
-                                                                   self.embed_end_states - self.embed_begin_states)))
-                    loss = tf.reduce_mean(self.loss_attractive + self.loss_repulsive) + tf.reduce_mean(self.loss_meta)
-                    self.representation_loss = loss  # + self.loss_inverse
+                    # self.loss_meta = tf.squared_difference(tf.abs(self.goal_states),
+                    #                                        tf.stop_gradient(
+                    #                                            tf.abs(
+                    #                                                self.embed_end_states - self.embed_begin_states)))
+                    self.loss_meta = tf.reduce_mean(tf.squared_difference(self.goal_states,
+                                                                          tf.stop_gradient(
+                                                                              self.embed_end_states - self.embed_begin_states)),
+                                                    axis=1)
+
+                    loss = tf.reduce_mean(self.loss_attractive + self.loss_repulsive + self.loss_meta)
+                    self.representation_loss = loss
 
             with tf.variable_scope('optimizer'):
                 self.LR = LR = tf.placeholder(tf.float32, [], name='learning_rate')
