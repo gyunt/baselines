@@ -269,22 +269,6 @@ class StatePreprocess(object):
         )[:-1]
 
 
-def join_scope(parent_scope, child_scope):
-    """Joins a parent and child scope using `/`, checking for empty/none.
-
-    Args:
-      parent_scope: (string) parent/prefix scope.
-      child_scope: (string) child/suffix scope.
-    Returns:
-      joined scope: (string) parent and child scopes joined by /.
-    """
-    if not parent_scope:
-        return child_scope
-    if not child_scope:
-        return parent_scope
-    return '/'.join([parent_scope, child_scope])
-
-
 def state_preprocess_net(
     states,
     num_output_dims=2,
