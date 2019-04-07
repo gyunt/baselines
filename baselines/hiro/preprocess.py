@@ -348,13 +348,13 @@ def meta_action_embed_net(
     """Creates a simple feed forward net for embedding actions.
     """
 
-    displacement = tf.math.reduce_mean(tf.abs(sampled_embed_displacement), axis=0)
+    displacement = tf.math.reduce_max(tf.abs(sampled_embed_displacement), axis=0)
     embed = meta_actions * displacement
 
     return embed
 
 
-def distance(a, b, tau=1e-3, delta=.1, ):
+def distance(a, b, tau=1, delta=.1, ):
     return tau * tf.reduce_sum(huber(a - b, delta=delta), -1)
 
 

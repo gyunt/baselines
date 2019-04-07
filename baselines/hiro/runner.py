@@ -1,4 +1,5 @@
 import numpy as np
+
 from baselines.common.runners import AbstractEnvRunner
 from baselines.common.running_mean_std import RunningMeanStd
 from baselines.common.tf_util import get_session
@@ -194,6 +195,9 @@ class Runner(AbstractEnvRunner):
                     high_minibatch[key] = []
                 high_minibatch[key].append(high_transitions[key])
             prev_high_transition = high_transitions
+
+        self.state_preprocess.update_displacement(begin_high_observations=begin_env_observations,
+                                                  end_high_observations=self.observations)
 
         high_transitions['observations'] = np.concatenate(
             [
