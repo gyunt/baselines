@@ -5,6 +5,7 @@ from collections import deque
 import gym
 import numpy as np
 import tensorflow as tf
+
 from baselines import logger
 from baselines.common import explained_variance
 from baselines.common import set_global_seeds

@@ -2,6 +2,7 @@ from copy import copy
 
 import numpy as np
 import tensorflow as tf
+
 from baselines.common.input import observation_placeholder
 
 try:
@@ -14,7 +15,6 @@ except ImportError:
 
 class StatePreprocess(object):
     STATE_PREPROCESS_NET_SCOPE = 'state_process_net'
-    INVERSE_STATE_NET_SCOPE = 'inverse_state_net'
     ACTION_EMBED_NET_SCOPE = 'action_embed_net'
     META_ACTION_EMBED_NET_SCOPE = 'meta_action_embed_net'
 
@@ -44,10 +44,6 @@ class StatePreprocess(object):
                     self.STATE_PREPROCESS_NET_SCOPE, state_preprocess_net,
                     num_output_dims=self.goal_dims,
                     create_scope_now_=True)
-                self._inverse_state = tf.make_template(
-                    self.INVERSE_STATE_NET_SCOPE, inverse_state_net,
-                    num_output_dims=int(np.prod(ob_space.shape)),
-                    create_scope_now_=True)
                 self._action_embed_net = tf.make_template(
                     self.ACTION_EMBED_NET_SCOPE, action_embed_net,
                     num_output_dims=self.goal_dims,
@@ -68,15 +64,30 @@ class StatePreprocess(object):
                 self.actions = tf.placeholder(tf.float32, [None] + list(act_space.shape))
                 self.discounts = tf.placeholder(tf.float32, shape=(None,))
 
-                with tf.variable_scope('translated_goal'):
-                    self.goal_states = self._meta_action_embed_net(self.meta_actions)
-
                 with tf.variable_scope('embed_state'):
                     self.embed_begin_states = self._state_preprocess_net(
                         tf.layers.flatten(self.begin_high_observations))
                     self.embed_end_states = self._state_preprocess_net(tf.layers.flatten(self.end_high_observations))
                     self.embed_states = self._state_preprocess_net(tf.layers.flatten(self.high_observations))
                     self.embed_next_states = self._state_preprocess_net(tf.layers.flatten(self.next_high_observations))
+
+                sampled_embedded_states = tf.get_variable('sampled_embedded_states',
+                                                          [self.sampling_size, self.goal_dims],
+                                                          collections=[tf.GraphKeys.LOCAL_VARIABLES],
+                                                          initializer=tf.zeros_initializer())
+                sampled_embed_displacement = tf.get_variable('sampled_embed_displacement',
+                                                             [self.sampling_size // meta_action_every_n,
+                                                              self.goal_dims],
+                                                             collections=[tf.GraphKeys.LOCAL_VARIABLES],
+                                                             initializer=tf.ones_initializer())
+                dist_coef = 1e-5
+
+                self.upd_displacement = sampled_embed_displacement.assign(
+                    tf.concat([sampled_embed_displacement, self.embed_end_states - self.embed_begin_states], axis=0)[
+                    -self.sampling_size // meta_action_every_n:])
+
+                with tf.variable_scope('translated_goal'):
+                    self.goal_states = self._meta_action_embed_net(self.meta_actions, sampled_embed_displacement)
 
                 with tf.variable_scope('embed_action'):
                     flatten_begin_high_observations = tf.layers.flatten(self.begin_high_observations)
@@ -85,20 +96,8 @@ class StatePreprocess(object):
                                                 states=flatten_begin_high_observations)
                          for i in range(meta_action_every_n)])
 
-                with tf.variable_scope('inverse_state'):
-                    self.inverse_state = self._inverse_state(self.embed_states)
-                    self.inverse_next_state = self._inverse_state(self.embed_states + \
-                                                                  self._action_embed_net(
-                                                                      tf.layers.flatten(self.actions),
-                                                                      states=flatten_begin_high_observations))
-
                 with tf.variable_scope('inverse_goal'):
                     self.inverse_goal = inverse_goal = self.embed_begin_states + self.embed_all_action
-
-                sampled_embedded_states = tf.get_variable('sampled_embedded_states',
-                                                          [self.sampling_size, self.goal_dims],
-                                                          collections=[tf.GraphKeys.LOCAL_VARIABLES],
-                                                          initializer=tf.zeros_initializer())
 
                 self.t = tf.Variable(
                     tf.zeros(shape=(), dtype=tf.int64), name='num_timer_steps')
@@ -111,33 +110,17 @@ class StatePreprocess(object):
                 with tf.variable_scope('estimated_log_partition'):
                     self.estimated_log_partition = \
                         tf.reduce_logsumexp(
-                            - distance(tf.stop_gradient(sampled_embedded_states[None, :, :]),
-                                       inverse_goal[:, None, :]),
+                            - dist_coef * distance(tf.stop_gradient(sampled_embedded_states[None, :, :]),
+                                                   inverse_goal[:, None, :]),
                             axis=-1) \
                         - np.log(self.sampling_size)
-
-                # with tf.control_dependencies([tf.print(
-                #     tau,
-                #     b,
-                # )]):
-                #     "state_preprocess/model/meta_action_embed_net/tau",
-                # "state_preprocess/model/meta_action_embed_net/bb"
-                #
-
-                aa = \
-                    [v for v in tf.global_variables() if
-                     v.name == "state_preprocess/model/meta_action_embed_net/aa:0"][0]
-                bb = \
-                    [v for v in tf.global_variables() if v.name == "state_preprocess/model/meta_action_embed_net/bb:0"][
-                        0]
 
                 with tf.control_dependencies([
                     upd,
                     tf.assign_add(self.t2, 1),
                     tf.cond(tf.equal(tf.mod(self.t2, 128 * 4), 0),
                             lambda: tf.print(
-                                '\nrewards:', (distance(self.embed_states, self.goal_states) \
-                                               - distance(self.embed_next_states, self.goal_states))[0],
+                                '\nrewards:', -distance(self.embed_next_states, self.goal_states)[0],
                                 '\ndiff_states:', self.embed_end_states[0] - self.embed_begin_states[0],
                                 '\ngoal(diff)  :', self.goal_states[0],
                                 tf.reduce_mean(
@@ -145,8 +128,8 @@ class StatePreprocess(object):
                                                           self.goal_states)),
                                 '\nbegin:', self.embed_begin_states[0],
                                 '\nend:', self.embed_end_states[0],
-                                '\naa:', aa,
-                                '\nbb:', bb,
+                                '\ndisplacement:', tf.reduce_max(tf.abs(sampled_embed_displacement), axis=0),
+                                # '\naa:', aa,
                             ),
                             lambda: tf.constant(False, dtype=tf.bool))
                 ]):
@@ -154,63 +137,30 @@ class StatePreprocess(object):
                         # original rewards
                         self._low_rewards = -distance(self.embed_next_states, self.goal_states)
 
-                        # modified rewards
-                        # self._low_rewards = distance(self.embed_states, self.goal_states) \
-                        #                     - distance(self.embed_next_states, self.goal_states)
-
                 with tf.variable_scope('loss'):
                     self.prior_log_probs = tf.reduce_mean(
                         self.estimated_log_partition + distance(self.embed_next_states, inverse_goal))
 
                     # original implementation
-                    self.loss_attractive = distance(inverse_goal, self.embed_next_states)
+                    self.loss_attractive = dist_coef * distance(inverse_goal, self.embed_next_states)
                     self.loss_repulsive = tf.exp(
+                        # - distance(self.embed_next_states, inverse_goal) \
+                        # - tf.stop_gradient(self.estimated_log_partition)
                         tf.clip_by_value(
-                            - distance(self.embed_next_states, inverse_goal) \
+                            - dist_coef * distance(self.embed_next_states, inverse_goal) \
                             - tf.stop_gradient(self.estimated_log_partition),
-                            -7, 7
+                            -10, 10
                         )
                     )
 
-                    # modified
-                    # self.loss_attractive = distance(inverse_goal, self.embed_next_states)
-                    #
-                    # self.loss_repulsive = tf.exp(tf.reduce_mean(
-                    #     - distance(tf.stop_gradient(sampled_embedded_states[None, :, :]), inverse_goal[:, None, :]) \
-                    #     - tf.stop_gradient(self.estimated_log_partition)[:, None],
-                    #     axis=1
-                    # ))
+                    # diff = tf.stop_gradient(self.embed_end_states - self.embed_begin_states)
+                    self.loss_meta = tf.constant(0.)
 
-                    self.loss_inverse = tf.reduce_mean(
-                        tf.squared_difference(tf.layers.flatten(self.high_observations), self.inverse_state) + \
-                        tf.squared_difference(tf.layers.flatten(self.next_high_observations), self.inverse_next_state))
+                    self.dist_loss = tf.reduce_mean(tf.squared_difference(dist_coef * sampled_embedded_states,
+                                                                          tf.ones_like(sampled_embedded_states)))
 
-                    # meta loss
-                    # self.loss_meta = tf.squared_difference(tf.abs(self.goal_states),
-                    #                                        tf.stop_gradient(
-                    #                                            tf.abs(
-                    #                                                self.embed_end_states - self.embed_begin_states)))
-                    diff = tf.stop_gradient(self.embed_end_states - self.embed_begin_states)
-                    # meta (1)
-                    # self.loss_meta = tf.reduce_mean(
-                    #     tf.squared_difference(self.goal_states * self.goal_states, diff * diff))
-                    # meta (2)
-                    # self.loss_meta = \
-                    #     tf.squared_difference(tf.reduce_mean(tf.abs(self.goal_states)), tf.reduce_mean(tf.abs(diff)))
-                    # meta (3)
-                    # self.loss_meta = \
-                    #     tf.squared_difference(tf.reduce_mean(self.goal_states * self.goal_states),
-                    #                           tf.reduce_mean(diff * diff))
-                    # meta (4)
-                    # self.loss_meta = \
-                    #     tf.reduce_mean(
-                    #         tf.squared_difference(self.goal_states, diff))
-                    # meta (5)
-                    self.loss_meta = \
-                        tf.reduce_mean(
-                            tf.squared_difference(tf.abs(self.goal_states), tf.abs(diff)))
-
-                    loss = tf.reduce_mean(self.loss_attractive + self.loss_repulsive) + self.loss_meta
+                    loss = tf.reduce_mean(
+                        self.discounts * (self.loss_attractive + self.loss_repulsive))  # + self.loss_meta
                     self.representation_loss = loss  # + self.loss_inverse
 
             with tf.variable_scope('optimizer'):
@@ -237,20 +187,6 @@ class StatePreprocess(object):
 
                 self.grads = grads
                 self.var = var
-                # with tf.control_dependencies([
-                #     tf.assign_add(self.t, 1),
-                #     tf.cond(tf.equal(tf.mod(self.t, 32), 0),
-                #             lambda: tf.print('\ndiff   :',
-                #                              tf.nn.moments(self.goal_states[0] - self.embed_states[0], axes=0),
-                #                              self.goal_states[0] - self.embed_states[0],
-                #                              '\nembed  :', tf.nn.moments(self.embed_states[0], axes=0),
-                #                              self.embed_states[0],
-                #                              '\ngoal   :', tf.nn.moments(self.goal_states[0], axes=0),
-                #                              self.goal_states[0],
-                #                              # sampled_embedded_states[-10:]
-                #                              ),
-                #             lambda: tf.constant(False, dtype=tf.bool))
-                # ]):
                 self._train_op = self.trainer.apply_gradients(grads_and_var)
                 self.stats_names = ['loss_total',
                                     'loss_attractive',
@@ -259,7 +195,6 @@ class StatePreprocess(object):
                                     'goal_size',
                                     'embed_size',
                                     'loss_meta',
-                                    'loss_inverse',
                                     ]
                 self.stats_list = [self.representation_loss,
                                    tf.reduce_mean(self.loss_attractive),
@@ -269,7 +204,6 @@ class StatePreprocess(object):
                                    tf.reduce_mean(tf.abs(self.goal_states)),
                                    tf.reduce_mean(tf.abs(self.embed_states)),
                                    tf.reduce_mean(self.loss_meta),
-                                   tf.reduce_mean(self.loss_inverse),
                                    ]
 
             with tf.variable_scope('initialization'):
@@ -293,6 +227,12 @@ class StatePreprocess(object):
             self.discounts: discounts,
             self.end_high_observations: end_high_observations,
             self.low_all_actions: low_all_actions,
+        })
+
+    def update_displacement(self, begin_high_observations, end_high_observations):
+        return self.sess.run(self.upd_displacement, {
+            self.begin_high_observations: begin_high_observations,
+            self.end_high_observations: end_high_observations,
         })
 
     def get_goal_states(self, meta_actions):
@@ -377,53 +317,6 @@ def state_preprocess_net(
     return output
 
 
-def inverse_state_net(
-    states,
-    num_output_dims=2,
-    states_hidden_layers=(64, 64),
-    normalizer_fn=None,
-    activation_fn=tf.nn.relu,
-    zero_time=True,
-    images=False):
-    """Creates a simple feed forward net for embedding states.
-    """
-    slim = tf.contrib.slim
-    with slim.arg_scope(
-        [slim.fully_connected],
-        activation_fn=activation_fn,
-        normalizer_fn=normalizer_fn,
-        weights_initializer=slim.variance_scaling_initializer(
-            factor=1.0 / 3.0, mode='FAN_IN', uniform=True),
-    ):
-
-        states_shape = tf.shape(states)
-        states_dtype = states.dtype
-        states = tf.to_float(states)
-        orig_states = states
-        if images:  # Zero-out x-y
-            states *= tf.constant([0.] * 2 + [1.] * (states.shape[-1] - 2), dtype=states.dtype)
-
-        # if zero_time:
-        #     states *= tf.constant([1.] * (states.shape[-1] - 1) + [0.], dtype=states.dtype)
-        embed = states
-        if states_hidden_layers:
-            embed = slim.stack(embed, slim.fully_connected, states_hidden_layers,
-                               scope='states')
-
-        with slim.arg_scope([slim.fully_connected],
-                            weights_regularizer=None,
-                            weights_initializer=tf.random_uniform_initializer(
-                                minval=-0.003, maxval=0.003)):
-            embed = slim.fully_connected(embed, num_output_dims,
-                                         activation_fn=None,
-                                         normalizer_fn=None,
-                                         scope='value')
-
-        output = embed
-        output = tf.cast(output, states_dtype)
-        return output
-
-
 def action_embed_net(
     actions,
     states=None,
@@ -463,24 +356,22 @@ def action_embed_net(
 
 def meta_action_embed_net(
     meta_actions,
+    sampled_embed_displacement,
     num_output_dims=2,
     hidden_layers=None,
     normalizer_fn=None,
-    activation_fn=None):
+    activation_fn=tf.nn.leaky_relu):
     """Creates a simple feed forward net for embedding actions.
     """
 
-    embed = meta_actions
-
-    aa = tf.get_variable("aa", shape=(num_output_dims,), initializer=tf.constant_initializer(1.))
-    b = tf.get_variable("bb", shape=(num_output_dims,), initializer=tf.constant_initializer(0.))
-    embed = aa * embed  # + b
+    displacement = tf.math.reduce_mean(tf.abs(sampled_embed_displacement), axis=0)
+    embed = meta_actions * displacement
 
     return embed
 
 
-def distance(a, b, tau=1., delta=1., ):
-    return tau * tf.reduce_mean(huber(a - b, delta=delta), -1)
+def distance(a, b, tau=1e-3, delta=.1, ):
+    return tau * tf.reduce_sum(huber(a - b, delta=delta), -1)
 
 
 def huber(x, delta=0.1):
