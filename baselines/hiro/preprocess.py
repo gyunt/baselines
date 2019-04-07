@@ -76,11 +76,15 @@ class StatePreprocess(object):
                                                           collections=[tf.GraphKeys.LOCAL_VARIABLES],
                                                           initializer=tf.zeros_initializer())
                 sampled_embed_displacement = tf.get_variable('sampled_embed_displacement',
-                                                             [self.sampling_size,
+                                                             [self.sampling_size // meta_action_every_n,
                                                               self.goal_dims],
                                                              collections=[tf.GraphKeys.LOCAL_VARIABLES],
                                                              initializer=tf.ones_initializer())
-                dist_coef = 1e-6
+                dist_coef = 1e-5
+
+                self.upd_displacement = sampled_embed_displacement.assign(
+                    tf.concat([sampled_embed_displacement, self.embed_end_states - self.embed_begin_states], axis=0)[
+                    -self.sampling_size // meta_action_every_n:])
 
                 with tf.variable_scope('translated_goal'):
                     self.goal_states = self._meta_action_embed_net(self.meta_actions, sampled_embed_displacement)
@@ -102,11 +106,6 @@ class StatePreprocess(object):
 
                 upd = sampled_embedded_states.assign(
                     tf.concat([sampled_embedded_states, self.embed_next_states], axis=0)[-self.sampling_size:])
-
-                upd_2 = sampled_embed_displacement.assign(
-                    tf.concat([sampled_embed_displacement, self.embed_end_states - self.embed_begin_states], axis=0)[
-                    -self.sampling_size:])
-                upd = tf.group([upd, upd_2])
 
                 with tf.variable_scope('estimated_log_partition'):
                     self.estimated_log_partition = \
@@ -230,6 +229,12 @@ class StatePreprocess(object):
             self.low_all_actions: low_all_actions,
         })
 
+    def update_displacement(self, begin_high_observations, end_high_observations):
+        return self.sess.run(self.upd_displacement, {
+            self.begin_high_observations: begin_high_observations,
+            self.end_high_observations: end_high_observations,
+        })
+
     def get_goal_states(self, meta_actions):
         return self.sess.run(self.goal_states, {
             self.meta_actions: meta_actions,
@@ -343,13 +348,13 @@ def meta_action_embed_net(
     """Creates a simple feed forward net for embedding actions.
     """
 
-    displacement = tf.math.reduce_max(tf.abs(sampled_embed_displacement), axis=0)
+    displacement = tf.math.reduce_mean(tf.abs(sampled_embed_displacement), axis=0)
     embed = meta_actions * displacement
 
     return embed
 
 
-def distance(a, b, tau=1, delta=.1, ):
+def distance(a, b, tau=1e-3, delta=.1, ):
     return tau * tf.reduce_sum(huber(a - b, delta=delta), -1)
 
 
