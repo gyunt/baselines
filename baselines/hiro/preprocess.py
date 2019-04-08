@@ -76,15 +76,11 @@ class StatePreprocess(object):
                                                           collections=[tf.GraphKeys.LOCAL_VARIABLES],
                                                           initializer=tf.zeros_initializer())
                 sampled_embed_displacement = tf.get_variable('sampled_embed_displacement',
-                                                             [self.sampling_size // meta_action_every_n,
+                                                             [self.sampling_size,
                                                               self.goal_dims],
                                                              collections=[tf.GraphKeys.LOCAL_VARIABLES],
                                                              initializer=tf.ones_initializer())
                 dist_coef = 1e-5
-
-                self.upd_displacement = sampled_embed_displacement.assign(
-                    tf.concat([sampled_embed_displacement, self.embed_end_states - self.embed_begin_states], axis=0)[
-                    -self.sampling_size // meta_action_every_n:])
 
                 with tf.variable_scope('translated_goal'):
                     self.goal_states = self._meta_action_embed_net(self.meta_actions, sampled_embed_displacement)
@@ -106,6 +102,10 @@ class StatePreprocess(object):
 
                 upd = sampled_embedded_states.assign(
                     tf.concat([sampled_embedded_states, self.embed_next_states], axis=0)[-self.sampling_size:])
+                upd2 = sampled_embed_displacement.assign(
+                    tf.concat([sampled_embed_displacement, self.embed_next_states - self.embed_begin_states], axis=0)[
+                    -self.sampling_size:])
+                self.upd = upd = tf.group([upd, upd2])
 
                 with tf.variable_scope('estimated_log_partition'):
                     self.estimated_log_partition = \
@@ -229,11 +229,18 @@ class StatePreprocess(object):
             self.low_all_actions: low_all_actions,
         })
 
+    def update_states(self, next_high_observations):
+        pass
+        # return self.sess.run(self.upd, {
+        #     self.next_high_observations: next_high_observations,
+        # })
+
     def update_displacement(self, begin_high_observations, end_high_observations):
-        return self.sess.run(self.upd_displacement, {
-            self.begin_high_observations: begin_high_observations,
-            self.end_high_observations: end_high_observations,
-        })
+        pass
+        # return self.sess.run(self.upd_displacement, {
+        #     self.begin_high_observations: begin_high_observations,
+        #     self.end_high_observations: end_high_observations,
+        # })
 
     def get_goal_states(self, meta_actions):
         return self.sess.run(self.goal_states, {
