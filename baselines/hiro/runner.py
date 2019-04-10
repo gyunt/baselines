@@ -112,7 +112,7 @@ class Runner(AbstractEnvRunner):
             high_transitions['dones'] = self.dones
             if 'next_states' in prev_high_transition:
                 high_transitions['states'] = prev_high_transition['next_states']
-            high_transitions.update(self.high_model.step_as_dict(**high_transitions))
+            high_transitions.update(self.high_model.step_with_dict(**high_transitions))
             high_transitions['rewards'] = [0] * self.nenv
 
             meta_actions = high_transitions['actions']
@@ -216,7 +216,7 @@ class Runner(AbstractEnvRunner):
                                        values=high_minibatch['values'],
                                        rewards=high_minibatch['rewards'],
                                        dones=high_minibatch['dones'],
-                                       last_values=self.high_model.step_as_dict(**high_transitions)['values'],
+                                       last_values=self.high_model.step_with_dict(**high_transitions)['values'],
                                        last_dones=self.dones,
                                        gamma=self.gamma)
 
@@ -225,7 +225,7 @@ class Runner(AbstractEnvRunner):
                                        values=low_minibatch['values'],
                                        rewards=low_minibatch['rewards'],
                                        dones=low_minibatch['dones'],
-                                       last_values=self.low_model.step_as_dict(**low_transitions)['values'],
+                                       last_values=self.low_model.step_with_dict(**low_transitions)['values'],
                                        last_dones=self.dones,
                                        gamma=self.gamma)
 
