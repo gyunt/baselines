@@ -42,6 +42,9 @@ class PolicyWithValue(object):
 
         vf_latent = vf_latent if vf_latent is not None else latent
 
+        self.policy_latent = latent
+        self.value_latent = latent
+
         with tf.variable_scope('policy'):
             latent = tf.layers.flatten(latent)
             # Based on the action space, will select what probability distribution type
@@ -124,8 +127,7 @@ def build_ppo_policy(env, policy_network, value_network=None, estimate_q=False, 
         state_map = {}
         state_placeholder = None
 
-        X = observ_placeholder if observ_placeholder is not None else observation_placeholder(ob_space,
-                                                                                              batch_size=nbatch)
+        X = observ_placeholder if observ_placeholder is not None else observation_placeholder(ob_space)
         dones = tf.placeholder(tf.float32, shape=[X.shape[0]], name='dones')
         encoded_x = encode_observation(ob_space, X)
 
@@ -144,7 +146,7 @@ def build_ppo_policy(env, policy_network, value_network=None, estimate_q=False, 
             state_size = policy_memory_size + value_memory_size
 
             if state_size > 0:
-                state_placeholder = tf.placeholder(dtype=tf.float32, shape=(nbatch, state_size),
+                state_placeholder = tf.placeholder(dtype=tf.float32, shape=(None, state_size),
                                                    name='states')
 
                 state_map['policy'] = state_placeholder[:, 0:policy_memory_size]

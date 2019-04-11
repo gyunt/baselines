@@ -26,6 +26,8 @@ class Model(object):
     - Save load the model
     """
 
+    POLICY_NET_SCOPE = 'policy_network'
+
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
                  nsteps, ent_coef, vf_coef, max_grad_norm,
                  name='ppo_model',
@@ -35,19 +37,28 @@ class Model(object):
             sess = get_session()
         self.sess = sess
         self.name = name
+        self._policy = tf.make_template(
+            self.POLICY_NET_SCOPE,
+            policy,
+            sess=sess,
+            ob_space=ob_space,
+            ac_space=ac_space)
 
         with tf.variable_scope(name) as scope:
             self.scope = scope
             with tf.variable_scope('models', reuse=tf.AUTO_REUSE):
-                with tf.name_scope('act_model'):
-                    # CREATE OUR TWO MODELS
-                    # act_model that is used for sampling
-                    act_model = policy(nbatch_act, 1, sess, ob_space=ob_space, ac_space=ac_space)
-
-                with tf.name_scope('train_model'):
-                    # Train model for training
-                    batch_size = nbatch_train if microbatch_size is None else microbatch_size
-                    train_model = policy(batch_size, nsteps, sess, ob_space=ob_space, ac_space=ac_space)
+                act_model = train_model = self._policy()
+                # with tf.name_scope('act_model'):
+                #     # CREATE OUR TWO MODELS
+                #     # act_model that is used for sampling
+                #     act_model = self._policy()
+                #     # act_model = policy(nbatch_act, 1, sess, ob_space=ob_space, ac_space=ac_space)
+                #
+                # with tf.name_scope('train_model'):
+                #     # Train model for training
+                #     # batch_size = nbatch_train if microbatch_size is None else microbatch_size
+                #     # train_model = policy(batch_size, nsteps, sess, ob_space=ob_space, ac_space=ac_space)
+                #     train_model = self._policy()
 
             with tf.variable_scope('losses'):
                 # CREATE THE PLACEHOLDERS
