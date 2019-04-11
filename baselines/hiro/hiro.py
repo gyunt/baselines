@@ -5,10 +5,10 @@ from collections import deque
 import gym
 import numpy as np
 import tensorflow as tf
-
 from baselines import logger
 from baselines.common import explained_variance
 from baselines.common import set_global_seeds
+from baselines.common.models import get_network_builder
 from baselines.common.tf_util import display_var_info, save_variables, load_variables
 from baselines.hiro.preprocess import StatePreprocess, state_preprocess_net, action_embed_net, meta_action_embed_net
 from baselines.hiro.runner import Runner
@@ -31,9 +31,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
           lr=3e-4,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, sub_goal_dim=8,
           log_interval=10, nminibatches=4, noptepochs=2, noptepochs_low=4, noptepochs_repr=8, cliprange=0.2,
-          meta_action_every_n=4,
-          sampling_size=1024,
-          save_interval=10, load_path=None, model_fn=None, **network_kwargs):
+          meta_action_every_n=4, save_interval=10, load_path=None, model_fn=None, **network_kwargs):
     """
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
 
@@ -97,8 +95,11 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
     else:
         assert callable(cliprange)
     total_timesteps = int(total_timesteps)
-
-    policy = build_ppo_policy(env, network, **network_kwargs)
+    high_policy_network = tf.make_template(
+        'shared_policy_network',
+        get_network_builder(network)())
+    high_policy = build_ppo_policy(env, policy_network=high_policy_network, **network_kwargs)
+    low_policy = build_ppo_policy(env, network, **network_kwargs)
 
     # Get the nb of env
     nenvs = env.num_envs
@@ -117,26 +118,28 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         model_fn = Model
 
     subgoal_space = gym.spaces.Box(low=-1., high=1., shape=(sub_goal_dim,), dtype=np.float32)
-    low_op_shape = (get_ob_size(ob_space.shape) + \
-                    get_ob_size(subgoal_space.shape) + \
-                    get_ob_size(subgoal_space.shape)
-                    ,)
+    low_op_shape = (
+        get_ob_size(ob_space.shape) + \
+        get_ob_size(subgoal_space.shape) + \
+        get_ob_size(subgoal_space.shape)
+        ,)
     low_ob_space = gym.spaces.Box(low=-1., high=1., shape=low_op_shape, dtype=np.float32)
 
-    high_ob_shape = (get_ob_size(ob_space.shape) + \
-                     get_ob_size(subgoal_space.shape) + \
-                     get_ob_size(ob_space.shape) * meta_action_every_n + \
-                     get_ob_size(ac_space.shape) * meta_action_every_n
-                     ,)
+    high_ob_shape = (
+        get_ob_size(ob_space.shape)
+        # get_ob_size(subgoal_space.shape) + \
+        # get_ob_size(ob_space.shape) * meta_action_every_n + \
+        # get_ob_size(ac_space.shape) * meta_action_every_n
+        ,)
     high_ob_space = gym.spaces.Box(low=-1., high=1., shape=high_ob_shape, dtype=np.float32)
 
     with tf.Session() as sess:
-        high_model = model_fn(name='high_model', policy=policy, ob_space=high_ob_space, ac_space=subgoal_space,
+        high_model = model_fn(name='high_model', policy=high_policy, ob_space=high_ob_space, ac_space=subgoal_space,
                               nbatch_act=nenvs,
                               nbatch_train=nbatch_train // meta_action_every_n,
                               sess=sess,
                               nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef, max_grad_norm=max_grad_norm)
-        low_model = model_fn(name='low_model', policy=policy, ob_space=low_ob_space, ac_space=ac_space,
+        low_model = model_fn(name='low_model', policy=low_policy, ob_space=low_ob_space, ac_space=ac_space,
                              nbatch_act=nenvs,
                              nbatch_train=nbatch_train,
                              sess=sess,
@@ -146,9 +149,9 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             ob_space=ob_space,
             subgoal_space=subgoal_space,
             act_space=ac_space,
-            sampling_size=sampling_size,
+            sampling_size=nsteps * nenvs,
             meta_action_every_n=meta_action_every_n,
-            state_preprocess_net=state_preprocess_net,
+            state_preprocess_net=high_policy_network,
             action_embed_net=action_embed_net,
             meta_action_embed_net=meta_action_embed_net,
             max_grad_norm=max_grad_norm)

@@ -93,21 +93,15 @@ class Runner(AbstractEnvRunner):
         low_all_states = np.zeros(shape=[self.meta_action_every_n] + [self.nenv, int(np.prod(self.ob_space.shape))],
                                   dtype=np.float)
 
-        # print(env_observations.reshape(env_observation_space).shape,
-        #
-        #             self.state_preprocess.embedded_state(env_observations).shape,
-        #             low_all_states.swapaxes(0, 1).reshape(low_all_states.shape[1], -1).shape,
-        #             low_all_actions.swapaxes(0, 1).reshape(low_all_actions.shape[1], -1).shape)
-
         # For n in range number of steps
         for i in range(self.nsteps // self.meta_action_every_n):
             high_transitions = dict()
             high_transitions['observations'] = np.concatenate(
                 [
                     env_observations.reshape(env_observation_space),
-                    self.state_preprocess.embedded_state(env_observations),
-                    low_all_states.swapaxes(0, 1).reshape(low_all_states.shape[1], -1),
-                    low_all_actions.swapaxes(0, 1).reshape(low_all_actions.shape[1], -1),
+                    # self.state_preprocess.embedded_state(env_observations),
+                    # low_all_states.swapaxes(0, 1).reshape(low_all_states.shape[1], -1),
+                    # low_all_actions.swapaxes(0, 1).reshape(low_all_actions.shape[1], -1),
                 ], axis=1)
             high_transitions['dones'] = self.dones
             if 'next_states' in prev_high_transition:
@@ -137,7 +131,7 @@ class Runner(AbstractEnvRunner):
 
                 if 'next_states' in prev_low_transition:
                     low_transitions['states'] = prev_low_transition['next_states']
-                low_transitions.update(self.low_model.step_as_dict(**low_transitions))
+                low_transitions.update(self.low_model.step_with_dict(**low_transitions))
                 low_all_actions[j, :] = low_transitions['actions']
                 low_all_states[j, :] = env_observations.reshape(env_observation_space)
 
@@ -173,11 +167,22 @@ class Runner(AbstractEnvRunner):
                 low_minibatch['rewards'] = []
             if 'end_high_observations' not in low_minibatch:
                 low_minibatch['end_high_observations'] = []
+            if 'low_all_high_observations' not in low_minibatch:
+                low_minibatch['low_all_high_observations'] = []
+            #
+            # for key in ['low_all_actions', 'rewards', 'end_high_observations', 'low_all_high_observations']:
+            #     low_minibatch[key] = []
+
+            high_transitions['rewards'] += (-np.linalg.norm(
+                high_transitions['actions'] - self.state_preprocess.embedded_state(
+                    low_transitions['next_high_observations']), axis=-1))
 
             swapped_low_all_actions = np.array(low_all_actions).swapaxes(0, 1)
+            swapped_low_high_observations = np.array(low_all_states).swapaxes(0, 1)
             for j in range(self.meta_action_every_n):
                 low_minibatch['end_high_observations'].append(self.observations)
                 low_minibatch['low_all_actions'].append(swapped_low_all_actions)
+                low_minibatch['low_all_high_observations'].append(swapped_low_high_observations)
 
             for j in range(1, self.meta_action_every_n + 1):
                 low_rewards = self.state_preprocess.low_rewards(
@@ -202,9 +207,9 @@ class Runner(AbstractEnvRunner):
         high_transitions['observations'] = np.concatenate(
             [
                 env_observations.reshape(env_observation_space),
-                self.state_preprocess.embedded_state(env_observations),
-                low_all_states.swapaxes(0, 1).reshape(low_all_states.shape[1], -1),
-                low_all_actions.swapaxes(0, 1).reshape(low_all_actions.shape[1], -1),
+                # self.state_preprocess.embedded_state(env_observations),
+                # low_all_states.swapaxes(0, 1).reshape(low_all_states.shape[1], -1),
+                # low_all_actions.swapaxes(0, 1).reshape(low_all_actions.shape[1], -1),
             ], axis=1)
         high_transitions['dones'] = self.dones
         if 'states' in high_transitions:
