@@ -8,9 +8,8 @@ import tensorflow as tf
 from baselines import logger
 from baselines.common import explained_variance
 from baselines.common import set_global_seeds
-from baselines.common.tf_util import display_var_info
-from baselines.ppo2.policies import build_ppo_policy
-from baselines.ppo2.runner import Runner
+# from baselines.ppo_eager.policies import build_ppo_policy
+from baselines.ppo_eager.runner import Runner
 
 try:
     from mpi4py import MPI
@@ -23,6 +22,19 @@ def constfn(val):
         return val
 
     return f
+
+
+def print_graph():
+    tf.summary.trace_on(graph=True, profiler=False)
+    # Call only one tf.function when tracing.
+    logdir = 'i:/tmp/eager/'
+    writer = tf.summary.create_file_writer(logdir)
+    with writer.as_default():
+        tf.summary.trace_export(
+            name="my_func_trace",
+            step=0,
+            profiler_outdir=logdir)
+
 
 def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128, ent_coef=0.0, lr=3e-4,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
@@ -79,7 +91,6 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
     **network_kwargs:                 keyword arguments to the policy / network builder. See baselines.common/policies.py/build_policy and arguments to a particular type of network
                                       For instance, 'mlp' network architecture has arguments num_hidden and num_layers.
     """
-
     set_global_seeds(seed)
 
     if isinstance(lr, float):
@@ -91,8 +102,6 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
     else:
         assert callable(cliprange)
     total_timesteps = int(total_timesteps)
-
-    policy = build_ppo_policy(env, network, **network_kwargs)
 
     # Get the nb of env
     nenvs = env.num_envs
@@ -107,23 +116,20 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
 
     # Instantiate the model object (that creates act_model and train_model)
     if model_fn is None:
-        from baselines.ppo2.model import Model
+        from baselines.ppo_eager.model import Model
         model_fn = Model
 
-    model = model_fn(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
-                     nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef, max_grad_norm=max_grad_norm)
+    model = model_fn(ob_space=ob_space, ac_space=ac_space, ent_coef=ent_coef, vf_coef=vf_coef,
+                     max_grad_norm=max_grad_norm)
 
-    if load_path is not None:
-        model.load(load_path)
-
-    allvars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=model.name)
-    display_var_info(allvars)
+    # if load_path is not None:
+    #     model.load(load_path)
+    #
+    # allvars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=model.name)
+    # display_var_info(allvars)
 
     # Instantiate the runner object
     runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, ob_space=ob_space, lam=lam)
-
-    if eval_env is not None:
-        eval_runner = Runner(env=eval_env, model=model, nsteps=nsteps, gamma=gamma, ob_space=ob_space, lam=lam)
 
     epinfobuf = deque(maxlen=100)
     if eval_env is not None:
@@ -146,20 +152,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
         # Get minibatch
         minibatch = runner.run()
 
-        if eval_env is not None:
-            eval_minibatch = eval_runner.run()
-            _eval_obs = eval_minibatch['observations']  # noqa: F841
-            _eval_returns = eval_minibatch['returns']   # noqa: F841
-            _eval_masks = eval_minibatch['masks']       # noqa: F841
-            _eval_actions = eval_minibatch['actions']   # noqa: F841
-            _eval_values = eval_minibatch['values']     # noqa: F841
-            _eval_neglogpacs = eval_minibatch['neglogpacs'] # noqa: F841
-            _eval_states = eval_minibatch['state']      # noqa: F841
-            eval_epinfos = eval_minibatch['epinfos']
-
         epinfobuf.extend(minibatch.pop('epinfos'))
-        if eval_env is not None:
-            eval_epinfobuf.extend(eval_epinfos)
 
         # Here what we're going to do is for each minibatch calculate the loss and append it.
         mblossvals = []
@@ -174,11 +167,13 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             for start in range(0, nbatch, nbatch_train):
                 end = start + nbatch_train
                 mbinds = inds[start:end]
+
                 slices = {key: minibatch[key][mbinds] for key in minibatch}
-                mblossvals.append(model.train(lrnow, cliprangenow, **slices))
+                stats = model.train(lrnow, cliprangenow, **slices)
+                mblossvals.append(list(stats.values()))
 
         # Feedforward --> get losses --> update
-        lossvals = np.mean(mblossvals, axis=0)
+        # lossvals = np.mean(mblossvals, axis=0)
         # End timer
         tnow = time.perf_counter()
         # Calculate the fps (frame per second)
@@ -201,8 +196,8 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
                 logger.logkv('eval_eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]))
                 logger.logkv('eval_eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]))
             logger.logkv('time_elapsed', tnow - tfirststart)
-            for (lossval, lossname) in zip(lossvals, model.loss_names):
-                logger.logkv(lossname, lossval)
+            # for (lossval, lossname) in zip(lossvals, stats.keys()):
+            #     logger.logkv(lossname, lossval)
             if MPI is None or MPI.COMM_WORLD.Get_rank() == 0:
                 logger.dumpkvs()
         if save_interval and (update % save_interval == 0 or update == 1) and logger.get_dir() and (
@@ -211,7 +206,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=128
             os.makedirs(checkdir, exist_ok=True)
             savepath = osp.join(checkdir, '%.5i' % update)
             print('Saving to', savepath)
-            model.save(savepath)
+            # model.save(savepath)
         del minibatch
     return model
 
