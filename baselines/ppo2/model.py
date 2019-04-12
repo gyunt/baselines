@@ -1,7 +1,6 @@
 import functools
 
 import tensorflow as tf
-
 from baselines.common.tf_util import get_session, save_variables, load_variables
 
 try:
@@ -39,19 +38,12 @@ class Model(object):
         with tf.variable_scope(name) as scope:
             self.scope = scope
             with tf.variable_scope('models', reuse=tf.AUTO_REUSE):
-                with tf.name_scope('act_model'):
-                    # CREATE OUR TWO MODELS
-                    # act_model that is used for sampling
-                    act_model = policy(nbatch_act, 1, sess, ob_space=ob_space, ac_space=ac_space)
-
-                with tf.name_scope('train_model'):
-                    # Train model for training
-                    batch_size = nbatch_train if microbatch_size is None else microbatch_size
-                    train_model = policy(batch_size, nsteps, sess, ob_space=ob_space, ac_space=ac_space)
+                self.model = policy(sess, ob_space=ob_space, ac_space=ac_space)
+                self.initial_state = self.model.initial_state
 
             with tf.variable_scope('losses'):
                 # CREATE THE PLACEHOLDERS
-                self.A = A = train_model.pdtype.sample_placeholder([None], name='action')
+                self.A = A = self.model.pdtype.sample_placeholder([None], name='action')
                 self.ADV = ADV = tf.placeholder(tf.float32, [None], name='advantage')
                 self.RETURNS = RETURNS = tf.placeholder(tf.float32, [None], name='reward')
                 self.VALUE_PREV = VALUE_PREV = tf.placeholder(tf.float32, [None], name='value_prev')
@@ -60,17 +52,17 @@ class Model(object):
                 self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [], name='clip_range')
 
                 with tf.name_scope("neglogpac"):
-                    neglogpac = train_model.pd.neglogp(A)
+                    neglogpac = self.model.pd.neglogp(A)
 
                 with tf.name_scope("entropy"):
                     # Calculate the entropy
                     # Entropy is used to improve exploration by limiting the premature convergence to suboptimal policy.
-                    entropy = tf.reduce_mean(train_model.pd.entropy())
+                    entropy = tf.reduce_mean(self.model.pd.entropy())
                     entropy_loss = (- ent_coef) * entropy
 
                 with tf.name_scope("value_loss"):
                     # CALCULATE THE LOSS
-                    value = train_model.value
+                    value = self.model.value
                     value_clipped = VALUE_PREV + tf.clip_by_value(value - VALUE_PREV, -CLIPRANGE, CLIPRANGE)
                     vf_losses1 = tf.squared_difference(value, RETURNS)
                     vf_losses2 = tf.squared_difference(value_clipped, RETURNS)
@@ -121,10 +113,6 @@ class Model(object):
                                    'total_loss']
                 self.stats_list = [pg_loss, vf_loss, entropy_loss, approxkl, clipfrac, loss]
 
-                self.train_model = train_model
-                self.act_model = act_model
-                self.initial_state = act_model.initial_state
-
                 self.save = functools.partial(save_variables, sess=sess)
                 self.load = functools.partial(load_variables, sess=sess)
 
@@ -136,14 +124,14 @@ class Model(object):
                     sync_from_root(sess, global_variables)  # pylint: disable=E1101
 
     def step_with_dict(self, **kwargs):
-        return self.act_model.step(**kwargs)
+        return self.model.step(**kwargs)
 
     def step(self, obs, M=None, S=None, **kwargs):
         kwargs.update({'observations': obs})
         if M is not None and S is not None:
             kwargs.update({'dones': M})
             kwargs.update({'states': S})
-        transition = self.act_model.step(**kwargs)
+        transition = self.model.step(**kwargs)
         states = transition['next_states'] if 'next_states' in transition else None
         return transition['actions'], transition['values'], states, transition['neglogpacs']
 
@@ -161,7 +149,7 @@ class Model(object):
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
         td_map = {
-            self.train_model.X: observations,
+            self.model.X: observations,
             self.A: actions,
             self.ADV: advs,
             self.RETURNS: returns,
@@ -171,7 +159,7 @@ class Model(object):
             self.VALUE_PREV: values,
         }
 
-        td_map.update(self.train_model.feed_dict(**_kwargs))
+        td_map.update(self.model.feed_dict(**_kwargs))
 
         return self.sess.run(
             self.stats_list + [self._train_op],
