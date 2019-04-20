@@ -80,7 +80,8 @@ class SubprocVecEnv(VecEnv):
         self._assert_not_closed()
         for remote in self.remotes:
             remote.send(('reset', None))
-        return _flatten_obs([remote.recv() for remote in self.remotes])
+        aa = [remote.recv() for remote in self.remotes]
+        return _flatten_obs(aa)
 
     def close_extras(self):
         self.closed = True
@@ -112,6 +113,15 @@ def _flatten_obs(obs):
 
     if isinstance(obs[0], dict):
         keys = obs[0].keys()
-        return {k: np.stack([o[k] for o in obs]) for k in keys}
+
+        ret = dict()
+        for k in keys:
+            try:
+                ret[k] = np.stack([np.array(o[k]) for o in obs])
+            except IndexError:
+                pass
+        return ret
+
+        # return {k: np.stack([o[k] for o in obs]) for k in keys}
     else:
         return np.stack(obs)

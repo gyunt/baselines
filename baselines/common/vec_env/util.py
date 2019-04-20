@@ -1,7 +1,7 @@
 """
 Helpers for dealing with vectorized environments.
 """
-
+import copy
 from collections import OrderedDict
 
 import gym
@@ -12,7 +12,13 @@ def copy_obs_dict(obs):
     """
     Deep-copy an observation dict.
     """
-    return {k: np.copy(v) for k, v in obs.items()}
+    new_obs = dict()
+    for k, v in obs.items():
+        if isinstance(v, dict):
+            new_obs[k] = copy.deepcopy(v)
+        else:
+            new_obs[k] = np.copy(v)
+    return new_obs
 
 
 def dict_to_obs(obs_dict):

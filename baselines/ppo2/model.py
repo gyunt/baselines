@@ -108,6 +108,7 @@ class Model(object):
                 self.grads = grads
                 self.var = var
                 self._train_op = self.trainer.apply_gradients(grads_and_var)
+                self._train_op = tf.group([self._train_op, tf.get_collection(tf.GraphKeys.UPDATE_OPS)])
 
                 self.loss_names = ['policy_loss', 'value_loss', 'entropy_loss', 'approxkl', 'clipfrac',
                                    'total_loss']
@@ -138,18 +139,16 @@ class Model(object):
     def train(self,
               lr,
               cliprange,
-              observations,
               advs,
               returns,
               actions,
               values,
               neglogpacs,
-              **_kwargs):
+              **kwargs):
         # Normalize the advantages
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
         td_map = {
-            self.model.X: observations,
             self.A: actions,
             self.ADV: advs,
             self.RETURNS: returns,
@@ -158,8 +157,11 @@ class Model(object):
             self.OLDNEGLOGPAC: neglogpacs,
             self.VALUE_PREV: values,
         }
+        if not isinstance(self.model.X, dict):
+            td_map[self.model.X] = kwargs['observations']
 
-        td_map.update(self.model.feed_dict(**_kwargs))
+        kwargs['is_training'] = True
+        td_map.update(self.model.feed_dict(**kwargs))
 
         return self.sess.run(
             self.stats_list + [self._train_op],

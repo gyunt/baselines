@@ -1,10 +1,12 @@
+import collections
+import copy
+import functools
+import multiprocessing
+import os
+
 import numpy as np
 import tensorflow as tf  # pylint: ignore-module
-import copy
-import os
-import functools
-import collections
-import multiprocessing
+
 
 def switch(condition, then_expression, else_expression):
     """Switches between two operations depending on a scalar value (int or bool).
@@ -23,6 +25,7 @@ def switch(condition, then_expression, else_expression):
     x.set_shape(x_shape)
     return x
 
+
 # ================================================================
 # Extras
 # ================================================================
@@ -31,6 +34,7 @@ def lrelu(x, leak=0.2):
     f1 = 0.5 * (1 + leak)
     f2 = 0.5 * (1 - leak)
     return f1 * x + f2 * abs(x)
+
 
 # ================================================================
 # Mathematical utils
@@ -44,6 +48,7 @@ def huber_loss(x, delta=1.0):
         delta * (tf.abs(x) - 0.5 * delta)
     )
 
+
 # ================================================================
 # Global session
 # ================================================================
@@ -54,6 +59,7 @@ def get_session(config=None):
     if sess is None:
         sess = make_session(config=config, make_default=True)
     return sess
+
 
 def make_session(config=None, num_cpu=None, make_default=False, graph=None):
     """Returns a session that will use <num_cpu> CPU's only"""
@@ -71,24 +77,30 @@ def make_session(config=None, num_cpu=None, make_default=False, graph=None):
     else:
         return tf.Session(config=config, graph=graph)
 
+
 def single_threaded_session():
     """Returns a session which will only use a single CPU"""
     return make_session(num_cpu=1)
+
 
 def in_session(f):
     @functools.wraps(f)
     def newfunc(*args, **kwargs):
         with tf.Session():
             f(*args, **kwargs)
+
     return newfunc
 
+
 ALREADY_INITIALIZED = set()
+
 
 def initialize():
     """Initialize all the uninitialized variables in the global scope."""
     new_variables = set(tf.global_variables()) - ALREADY_INITIALIZED
     get_session().run(tf.variables_initializer(new_variables))
     ALREADY_INITIALIZED.update(new_variables)
+
 
 # ================================================================
 # Model components
@@ -99,7 +111,9 @@ def normc_initializer(std=1.0, axis=0):
         out = np.random.randn(*shape).astype(dtype.as_numpy_dtype)
         out *= std / np.sqrt(np.square(out).sum(axis=axis, keepdims=True))
         return tf.constant(out)
+
     return _initializer
+
 
 def conv2d(x, num_filters, name, filter_size=(3, 3), stride=(1, 1), pad="SAME", dtype=tf.float32, collections=None,
            summary_tag=None):
@@ -129,6 +143,7 @@ def conv2d(x, num_filters, name, filter_size=(3, 3), stride=(1, 1), pad="SAME", 
                              max_images=10)
 
         return tf.nn.conv2d(x, w, stride_shape, pad) + b
+
 
 # ================================================================
 # Theano-like Function
@@ -211,6 +226,7 @@ class _Function(object):
         results = get_session().run(self.outputs_update, feed_dict=feed_dict)[:-1]
         return results
 
+
 # ================================================================
 # Flat vectors
 # ================================================================
@@ -221,11 +237,14 @@ def var_shape(x):
         "shape function assumes that shape is fully known"
     return out
 
+
 def numel(x):
     return intprod(var_shape(x))
 
+
 def intprod(x):
     return int(np.prod(x))
+
 
 def flatgrad(loss, var_list, clip_norm=None):
     grads = tf.gradients(loss, var_list)
@@ -235,6 +254,7 @@ def flatgrad(loss, var_list, clip_norm=None):
         tf.reshape(grad if grad is not None else tf.zeros_like(v), [numel(v)])
         for (v, grad) in zip(var_list, grads)
     ])
+
 
 class SetFromFlat(object):
     def __init__(self, var_list, dtype=tf.float32):
@@ -254,6 +274,7 @@ class SetFromFlat(object):
     def __call__(self, theta):
         tf.get_default_session().run(self.op, feed_dict={self.theta: theta})
 
+
 class GetFlat(object):
     def __init__(self, var_list):
         self.op = tf.concat(axis=0, values=[tf.reshape(v, [numel(v)]) for v in var_list])
@@ -261,8 +282,10 @@ class GetFlat(object):
     def __call__(self):
         return tf.get_default_session().run(self.op)
 
+
 def flattenallbut0(x):
     return tf.reshape(x, [-1, intprod(x.get_shape().as_list()[1:])])
+
 
 # =============================================================
 # TF placeholders management
@@ -270,21 +293,23 @@ def flattenallbut0(x):
 
 _PLACEHOLDER_CACHE = {}  # name -> (placeholder, dtype, shape)
 
+
 def get_placeholder(name, dtype, shape):
     if name in _PLACEHOLDER_CACHE:
         out, dtype1, shape1 = _PLACEHOLDER_CACHE[name]
         if out.graph == tf.get_default_graph():
             assert dtype1 == dtype and shape1 == shape, \
-                'Placeholder with name {} has already been registered and has shape {}, different from requested {}'.format(name, shape1, shape)
+                'Placeholder with name {} has already been registered and has shape {}, different from requested {}'.format(
+                    name, shape1, shape)
             return out
 
     out = tf.placeholder(dtype=dtype, shape=shape, name=name)
     _PLACEHOLDER_CACHE[name] = (out, dtype, shape)
     return out
 
+
 def get_placeholder_cached(name):
     return _PLACEHOLDER_CACHE[name][0]
-
 
 
 # ================================================================
@@ -299,10 +324,10 @@ def display_var_info(vars):
         if "/Adam" in name or "beta1_power" in name or "beta2_power" in name: continue
         v_params = np.prod(v.shape.as_list())
         count_params += v_params
-        if "/b:" in name or "/bias" in name: continue    # Wx+b, bias is not interesting to look at => count params, but not print
-        logger.info("   %s%s %i params %s" % (name, " "*(55-len(name)), v_params, str(v.shape)))
+        if "/b:" in name or "/bias" in name: continue  # Wx+b, bias is not interesting to look at => count params, but not print
+        logger.info("   %s%s %i params %s" % (name, " " * (55 - len(name)), v_params, str(v.shape)))
 
-    logger.info("Total model parameters: %0.2f million" % (count_params*1e-6))
+    logger.info("Total model parameters: %0.2f million" % (count_params * 1e-6))
 
 
 def get_available_gpus(session_config=None):
@@ -318,6 +343,7 @@ def get_available_gpus(session_config=None):
     local_device_protos = device_lib.list_local_devices(session_config)
     return [x.name for x in local_device_protos if x.device_type == 'GPU']
 
+
 # ================================================================
 # Saving variables
 # ================================================================
@@ -329,6 +355,7 @@ def load_state(fname, sess=None):
     saver = tf.train.Saver()
     saver.restore(tf.get_default_session(), fname)
 
+
 def save_state(fname, sess=None):
     from baselines import logger
     logger.warn('save_state method is deprecated, please use save_variables instead')
@@ -338,6 +365,7 @@ def save_state(fname, sess=None):
         os.makedirs(dirname, exist_ok=True)
     saver = tf.train.Saver()
     saver.save(tf.get_default_session(), fname)
+
 
 # The methods above and below are clearly doing the same thing, and in a rather similar way
 # TODO: ensure there is no subtle differences and remove one
@@ -354,7 +382,8 @@ def save_variables(save_path, variables=None, sess=None):
         os.makedirs(dirname, exist_ok=True)
     joblib.dump(save_dict, save_path)
 
-def load_variables(load_path, variables=None, sess=None):
+
+def load_variables(load_path, variables=None, sess=None, different_size=True):
     import joblib
     sess = sess or get_session()
     variables = variables or tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
@@ -366,10 +395,24 @@ def load_variables(load_path, variables=None, sess=None):
         for d, v in zip(loaded_params, variables):
             restores.append(v.assign(d))
     else:
+        import warnings
         for v in variables:
-            restores.append(v.assign(loaded_params[v.name]))
+            try:
+                if different_size and not np.all(v.get_shape() == loaded_params[v.name].shape):
+                    warnings.warn('shape of {} is different'.format(v.name))
+                    indices = np.minimum(v.get_shape().as_list(), loaded_params[v.name].shape)
+                    slices = tf.strided_slice(v, np.zeros(indices.shape, dtype=np.int), indices, var=v, name='v_slice')
 
+                    params = loaded_params[v.name]
+                    for i in indices:
+                        params = params[:i]
+                    restores.append(tf.assign(slices, params))
+                else:
+                    restores.append(v.assign(loaded_params[v.name]))
+            except KeyError:
+                warnings.warn("{} is missing in model file.".format(v.name))
     sess.run(restores)
+
 
 # ================================================================
 # Shape adjustment for feeding into tf placeholders
@@ -418,6 +461,7 @@ def _check_shape(placeholder_shape, data_shape):
 
 def _squeeze_shape(shape):
     return [x for x in shape if x != 1]
+
 
 # ================================================================
 # Tensorboard interfacing

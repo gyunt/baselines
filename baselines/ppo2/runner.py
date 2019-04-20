@@ -31,7 +31,7 @@ class Runner(AbstractEnvRunner):
         }
 
         data_type = {
-            "observations": self.obs.dtype,
+            "observations": np.float32,
             "actions": np.float32,
             "rewards": np.float32,
             "values": np.float32,
@@ -39,13 +39,18 @@ class Runner(AbstractEnvRunner):
             "neglogpacs": np.float32,
         }
 
-        prev_transition = {'next_states': self.model.initial_state} if self.model.initial_state is not None else {}
+        prev_transition = {'next_states': np.tile(self.model.initial_state, (
+            self.env.num_envs, 1))} if self.model.initial_state is not None else {}
         epinfos = []
 
         # For n in range number of steps
         for _ in range(self.nsteps):
             transitions = {}
-            transitions['observations'] = self.obs.copy()
+            if isinstance(self.obs, dict):
+                for key in self.obs:
+                    transitions[key] = self.obs[key].copy()
+            else:
+                transitions['observations'] = self.obs.copy()
             transitions['dones'] = self.dones
             if 'next_states' in prev_transition:
                 transitions['states'] = prev_transition['next_states']
@@ -67,11 +72,22 @@ class Runner(AbstractEnvRunner):
                 minibatch[key].append(transitions[key])
             prev_transition = transitions
 
+        will_be_deleted = []
         for key in minibatch:
-            dtype = data_type[key] if key in data_type else np.float
-            minibatch[key] = np.array(minibatch[key], dtype=dtype)
+            try:
+                dtype = data_type[key] if key in data_type else np.float
+                minibatch[key] = np.array(minibatch[key], dtype=dtype)
+            except TypeError:
+                will_be_deleted.append(key)
 
-        transitions['observations'] = self.obs.copy()
+        for key in will_be_deleted:
+            del minibatch[key]
+
+        if isinstance(self.obs, dict):
+            for key in self.obs:
+                transitions[key] = self.obs[key]
+        else:
+            transitions['observations'] = self.obs.copy()
         transitions['dones'] = self.dones
         if 'states' in transitions:
             transitions['states'] = transitions.pop('next_states')
@@ -90,9 +106,14 @@ class Runner(AbstractEnvRunner):
                                        last_values=last_values,
                                        last_dones=self.dones,
                                        gamma=self.gamma)
-
+        will_be_deleted = []
         for key in minibatch:
-            minibatch[key] = sf01(minibatch[key])
+            if minibatch[key].shape[0] < self.nsteps:
+                will_be_deleted.append(key)
+            else:
+                minibatch[key] = sf01(minibatch[key])
+        for key in will_be_deleted:
+            del minibatch[key]
 
         minibatch['epinfos'] = epinfos
         return minibatch

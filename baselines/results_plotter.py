@@ -59,8 +59,25 @@ def plot_curves(xy_list, xaxis, yaxis, title):
     minx = 0
     # labels = ['ppo_gru_mlp (PR)', 'mlp (PR)', 'ppo_lstm (PR)', 'ppo_gru (PR)', 'ppo_lstm_mlp (PR)', 'mlp (original ppo2)',
     #           'lstm (original ppo2, shared)']
-    labels = ['ppo_gru_mlp (PR)', 'mlp (PR)', 'ppo_lstm (PR)', 'ppo_gru (PR)', 'ppo_lstm_mlp (PR)']
-    colors = ['darkblue', 'green', 'salmon', 'cyan', 'magenta']
+    labels = ['no lstm',
+              'lstm, input norm',
+              'lstm, input layer norm',
+              'lstm, input norm, input layer norm',
+              'lstm, input norm, output layer norm',
+              'lstm, input norm, output layer norm, copy',
+              'lstm, input norm, input layer norm, copy',
+              '--',
+              '--',
+              '--',
+              '--',
+              '--',
+              '--',
+              '--',
+              '--',
+
+
+              ]
+    colors = COLORS
 
     for (i, (x, y)) in enumerate(xy_list):
         color = colors[i]
@@ -72,7 +89,7 @@ def plot_curves(xy_list, xaxis, yaxis, title):
     plt.xlabel(xaxis)
     plt.ylabel(yaxis)
     plt.tight_layout()
-    plt.legend(loc='upper left')
+    plt.legend(loc='lower right')
     fig.canvas.mpl_connect('resize_event', lambda event: plt.tight_layout())
     plt.grid(True)
 
