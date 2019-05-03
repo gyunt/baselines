@@ -58,6 +58,51 @@ def mlp(num_layers=2, num_hidden=64, activation=tf.tanh, layer_norm=False):
 
     return network_fn
 
+@register("mlp2")
+def mlp(num_layers=2, num_hidden=64, activation=tf.tanh, layer_norm=False):
+    """
+    Stack of fully-connected layers to be used in a policy / q-function approximator
+
+    Parameters:
+    ----------
+
+    num_layers: int                 number of fully-connected layers (default: 2)
+
+    num_hidden: int                 size of fully-connected layers (default: 64)
+
+    activation:                     activation function (default: tf.tanh)
+
+    Returns:
+    -------
+
+    function that builds fully connected network with a given input tensor / placeholder
+    """
+    def network_fn(X):
+        # net = tf.contrib.layers.conv2d(X,
+        #                                num_outputs=1,
+        #                                kernel_size=1,
+        #                                stride=1,
+        #                                padding='VALID',
+        #                                activation_fn=tf.nn.relu)
+        net = tf.expand_dims(X, axis=-1)
+        net = tf.contrib.layers.conv2d(net,
+                                       num_outputs=64,
+                                       kernel_size=5,
+                                       stride=1,
+                                       padding='SAME',
+                                       activation_fn=tf.nn.relu)
+        net = tf.reduce_max(net, reduction_indices=[3])
+        h = tf.layers.flatten(net)
+        for i in range(num_layers):
+            h = fc(h, 'mlp_fc{}'.format(i), nh=num_hidden, init_scale=np.sqrt(2))
+            if layer_norm:
+                h = tf.contrib.layers.layer_norm(h, center=True, scale=True)
+            h = activation(h)
+
+        return h
+
+    return network_fn
+
 
 @register("cnn")
 def cnn(**conv_kwargs):
