@@ -1,14 +1,15 @@
 import gym
 import numpy as np
 import tensorflow as tf
+from gym import spaces
+
 from baselines.a2c.utils import fc
 from baselines.common import tf_util
 from baselines.common.distributions import PdType, Pd
 from baselines.common.input import observation_placeholder, encode_observation
 from baselines.common.models import get_network_builder
 from baselines.common.tf_util import adjust_shape
-from baselines.ppo2.layers import RNN
-from gym import spaces
+from baselines.ppo2.layers import RNN, max_pool
 
 
 class PolicyWithValue(object):
@@ -18,6 +19,7 @@ class PolicyWithValue(object):
 
     def __init__(self, observations, action_space, latent, dones, is_training, states=None, estimate_q=False,
                  vf_latent=None,
+                 embed_dim=32,
                  sess=None):
         """
         Parameters:
@@ -48,13 +50,9 @@ class PolicyWithValue(object):
             latent = tf.layers.flatten(latent)
             # Based on the action space, will select what probability distribution type
 
-            available_actions = observations['available_actions']
-            available_targets = observations['available_targets']
-            available_select_targets = observations['available_select_targets']
-            availables = tf.ones([tf.shape(latent)[0], np.sum(self.pdtype.ncats[3:])])
-            availables = tf.concat([available_actions, available_targets, available_select_targets, availables], axis=1)
+            avail_actions = tf.layers.flatten(observations['avail_actions'])
 
-            self.pd, self.pi = self.pdtype.pdfromlatent(latent, availables=availables)
+            self.pd, self.pi = self.pdtype.pdfromlatent(latent, availables=avail_actions)
 
             with tf.variable_scope('sample_action'):
                 self.action = self.pd.sample()
@@ -64,16 +62,30 @@ class PolicyWithValue(object):
                 self.neglogp = self.pd.neglogp(self.action)
 
         with tf.variable_scope('value'):
+            obs_states = observations['obs_states']
+            n_agents = 3
+            embed_dim = 32
+
             vf_latent = tf.layers.flatten(vf_latent)
 
-            if estimate_q:
-                assert isinstance(action_space, gym.spaces.Discrete)
-                self.q = fc(vf_latent, 'q', action_space.n)
-                self.value = self.q
-            else:
-                vf_latent = tf.layers.flatten(vf_latent)
-                self.value = fc(vf_latent, 'value', 1, init_scale=0.01)
-                self.value = self.value[:, 0]
+            self.value_net = tf.make_template('value_pdparam_net',
+                                              _value_pdparam_net,
+                                              num_hidden=1)
+            values = []
+            for i in range(0, 128 * 3, 128):
+                values.append(self.value_net(vf_latent[:, i: i + 128]))
+            values = tf.concat(values, axis=1)
+            values = tf.reshape(values, shape=(-1, 1, n_agents))
+            self.value = mixing_network(obs_states, values)
+
+            # if estimate_q:
+            #     assert isinstance(action_space, gym.spaces.Discrete)
+            #     self.q = fc(vf_latent, 'q', action_space.n)
+            #     self.value = self.q
+            # else:
+            #     vf_latent = tf.layers.flatten(vf_latent)
+            #     self.value = fc(vf_latent, 'value', 1, init_scale=0.01)
+            #     self.value = self.value[:, 0]
 
         if isinstance(self.X, dict):
             self.step_input = {
@@ -123,9 +135,109 @@ class PolicyWithValue(object):
         tf_util.load_state(load_path, sess=self.sess)
 
 
+def mixing_network(obs_states, chosen_action_qvals,
+                   embed_dim=32,
+                   n_agents=3,
+                   agent_dim=5,
+                   n_enemy=4,
+                   enemy_dim=4,
+                   n_actions=10,
+                   num_units=256,
+                   num_output_dims=64):
+    ally_states = obs_states[:, :n_agents * agent_dim]
+    enemy_states = obs_states[:, n_agents * agent_dim: n_agents * agent_dim + n_enemy * enemy_dim]
+    last_actions = obs_states[:, n_agents * agent_dim + n_enemy * enemy_dim:]
+
+    ally_states = tf.reshape(ally_states, shape=(-1, n_agents, agent_dim))
+    enemy_states =tf.reshape(enemy_states, shape=(-1, n_enemy, enemy_dim))
+    last_actions = tf.reshape(last_actions, shape=(-1, n_agents, n_actions))
+    ally_states = tf.concat([ally_states, last_actions], axis=2)
+
+    ally_embed_net = tf.make_template('ally_embed_network',
+                                      _unit_embed_net,
+                                        num_hidden=num_units,
+                                        layer_norm=True)
+
+    enemy_embed_net = tf.make_template('enemy_embed_network',
+                                       _unit_embed_net,
+                                       num_hidden=num_units,
+                                       layer_norm=True)
+
+    ally_embeds = ally_embed_net(ally_states)
+    enemy_embeds = enemy_embed_net(enemy_states)
+
+    ally_embeds = max_pool(ally_embeds, ally_states)
+    enemy_embeds = max_pool(enemy_embeds, enemy_states)
+
+    states_embeds = tf.concat([ally_embeds, enemy_embeds], axis=1)
+
+    # hyper_w_1 = tf.layers.dense(states_embeds, embed_dim * n_agents, None, True,
+    #                             kernel_initializer=tf.contrib.layers.xavier_initializer())
+    # hyper_w_final = tf.layers.dense(states_embeds, embed_dim, None, True,
+    #                                 kernel_initializer=tf.contrib.layers.xavier_initializer())
+    # hyper_b_1 = tf.layers.dense(states_embeds, embed_dim, None, True,
+    #                             kernel_initializer=tf.contrib.layers.xavier_initializer())
+    # v = tf.layers.dense(states_embeds, embed_dim, tf.nn.relu, True,
+    #                     kernel_initializer=tf.contrib.layers.xavier_initializer())
+    # v = tf.layers.dense(v, 1, None, True,
+    #                     kernel_initializer=tf.contrib.layers.xavier_initializer())
+    # v = tf.reshape(v, shape=(-1, 1, 1))
+    #
+    # # w1 = tf.abs(hyper_w_1)
+    # w1 = hyper_w_1
+    # b1 = hyper_b_1
+    # w1 = tf.reshape(w1, shape=(-1, n_agents, embed_dim))
+    # b1 = tf.expand_dims(b1, axis=1)
+    #
+    # hidden = tf.nn.elu(tf.matmul(chosen_action_qvals, w1) + b1)
+    #
+    # # w_final = tf.abs(hyper_w_final)
+    # w_final = hyper_w_final
+    # w_final = tf.reshape(w_final, shape=(-1, embed_dim, 1))
+    # return tf.squeeze(tf.reshape(tf.matmul(hidden, w_final) + v, shape=(-1, 1)), axis=1)
+    embed = tf.layers.dense(states_embeds, num_units, tf.nn.relu, True,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer())
+    embed = tf.layers.dense(embed, 1, None, True,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer())
+    return tf.squeeze(embed, axis=1)
+
+
+
+
+def _unit_embed_net(unit_embed,
+                    activation_fn=tf.nn.relu,
+                    num_hidden=64,
+                    layer_norm=False,
+                    ):
+    embed = tf.layers.dense(unit_embed, num_hidden, activation_fn, True,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer())
+    embed = tf.layers.dense(embed, num_hidden, activation_fn, True,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer())
+    if layer_norm:
+        embed = tf.contrib.layers.layer_norm(embed, center=True, scale=True)
+
+    return embed
+
+
+def get_elements(data, indices):
+    shape = tf.shape(data)
+    batch_size, num_agents, num_actions = shape[0], shape[1], shape[2]
+
+    base = tf.reshape(tf.range(0, batch_size * num_agents * num_actions, num_actions), shape=(batch_size, num_agents))
+    indices = base + indices
+
+    data = tf.reshape(data, shape=(-1,))
+    indices = tf.reshape(indices, shape=(-1, 1))
+    return tf.reshape(tf.gather_nd(data, indices=indices), shape=(batch_size, 1, num_agents))
+
+
 class SC2ActionsPdType(PdType):
     def __init__(self, nvec):
         self.ncats = nvec.astype('int32')
+        self.pdparam_net = tf.make_template('test_pdparam_net',
+                                            _value_pdparam_net,
+                                            num_hidden=10)
+
         assert (self.ncats > 0).all()
 
     def pdclass(self):
@@ -138,6 +250,10 @@ class SC2ActionsPdType(PdType):
         pdparam = tf.layers.dense(latent, self.ncats.sum(), None, True,
                                   name='pi',
                                   kernel_initializer=tf.contrib.layers.xavier_initializer())
+        # pdparam = []
+        # for i in range(0, 128 * 3, 128):
+        #     pdparam.append(self.pdparam_net(latent[:, i: i+128]))
+        # pdparam = tf.concat(pdparam, axis=1)
         return self.pdfromflat(pdparam, availables), pdparam
 
     def param_shape(self):
@@ -148,6 +264,13 @@ class SC2ActionsPdType(PdType):
 
     def sample_dtype(self):
         return tf.int32
+
+
+def _value_pdparam_net(x,
+                       num_hidden=64, ):
+    embed = tf.layers.dense(x, num_hidden, None, True,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer())
+    return embed
 
 
 class SC2ActionsPd(Pd):
@@ -242,7 +365,10 @@ class CategoricalPd(Pd):
         u = tf.random_uniform(tf.shape(self.logits), dtype=self.logits.dtype)
         if self.available is None:
             return tf.argmax(self.logits - tf.log(-tf.log(u)), axis=-1)
-        return tf.argmax(self.available * (self.logits - tf.log(-tf.log(u))), axis=-1)
+        return tf.argmax(tf.where(tf.cast(self.available, dtype=tf.bool),
+                                  self.logits - tf.log(-tf.log(u)),
+                                  -99999999 * tf.ones_like(self.logits)
+                                  ), axis=-1)
 
         # tfp.distributions.OneHotCategorical(logit=self.logits)
         # aa = tfp.distributions.Categorical(logits=self.logits)
@@ -270,9 +396,7 @@ def build_ppo_policy(env, policy_network, value_network=None, estimate_q=False, 
         next_states_list = []
         state_map = {}
         state_placeholder = None
-        interesting_field = ['feature_units', 'feature_units_self', 'feature_units_neutral', 'feature_units_enemy',
-                             'available_actions', 'select', 'last_actions', 'available_targets',
-                             'available_select_targets']
+        interesting_field = ['obs', 'obs_states', 'avail_actions']
 
         if isinstance(ob_space, spaces.Dict):
             if observ_placeholder is not None:
@@ -300,6 +424,9 @@ def build_ppo_policy(env, policy_network, value_network=None, estimate_q=False, 
             else:
                 if value_network == 'copy':
                     value_network_ = policy_network
+                elif isinstance(value_network, str):
+                    network_type = value_network
+                    value_network_ = get_network_builder(network_type)()
                 else:
                     assert callable(value_network)
                     value_network_ = value_network
